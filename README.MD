@@ -1,4 +1,5 @@
-# Gopper 🦫
+# Gopper
+![gopper_gopher.png](gopper_gopher.png)
 
 A Klipper firmware implementation in TinyGo for modern microcontrollers.
 
