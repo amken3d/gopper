@@ -33,6 +33,7 @@ func InitCoreCommands() {
 	RegisterCommand("finalize_config", "crc=%u", handleFinalizeConfig)
 	RegisterCommand("allocate_oids", "count=%c", handleAllocateOids)
 	RegisterCommand("emergency_stop", "", handleEmergencyStop)
+	RegisterCommand("reset", "", handleReset)
 
 	// Response messages (MCU → Host)
 	RegisterCommand("clock", "clock=%u", nil)
@@ -161,6 +162,14 @@ func handleEmergencyStop(data *[]byte) error {
 	return nil
 }
 
+// ResetFirmwareState resets the firmware state for reconnection
+// This is called when USB reconnects or firmware restart is requested
+func ResetFirmwareState() {
+	atomic.StoreUint32(&globalState.configCRC, 0)
+	atomic.StoreUint32(&globalState.isShutdown, 0)
+	globalState.moveCount = 0
+}
+
 // SendResponse sends a response message using the global transport
 func SendResponse(responseName string, args func(output protocol.OutputBuffer)) {
 	if globalTransport != nil {
@@ -192,4 +201,22 @@ var globalTransport *protocol.Transport
 // SetGlobalTransport sets the global transport for sending responses
 func SetGlobalTransport(transport *protocol.Transport) {
 	globalTransport = transport
+}
+
+// Global reset handler (set by target-specific code)
+var globalResetHandler func()
+
+// SetResetHandler sets the platform-specific reset handler
+func SetResetHandler(handler func()) {
+	globalResetHandler = handler
+}
+
+// handleReset triggers a hardware reset of the MCU
+// This is used by Klipper's FIRMWARE_RESTART command
+func handleReset(data *[]byte) error {
+	if globalResetHandler != nil {
+		globalResetHandler()
+		// Should never return - reset handler should reset the MCU
+	}
+	return nil
 }

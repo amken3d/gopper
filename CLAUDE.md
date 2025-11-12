@@ -20,15 +20,19 @@ Gopper is a Klipper firmware implementation written in TinyGo for modern microco
 - ✅ Basic command handlers (identify, get_uptime, get_clock, get_config)
 
 ### Known Issues
-- ⚠️ Connection reliability: Dictionary transfer sometimes fails partway through
-  - Intermittent crashes at various offsets during identify_response transmission
-  - Likely memory corruption or race condition in USB handling
-  - Reconnection after Ctrl+C does not always work cleanly
-- ⚠️ USB disconnect detection needs improvement
 - ⚠️ No stepper motor control implemented yet
 - ⚠️ Timer system not fully tested under load
+- ⚠️ No endstop/ADC/PWM support yet
 
-### Recent Bug Fixes
+### Recent Bug Fixes (2025-11-12)
+- **Fixed circular buffer wrap-around bug** causing timeouts after ~6 seconds of communication
+  - `FifoBuffer.Data()` was only returning first segment when wrapped, causing message corruption
+  - Added proper contiguous data copy for wrapped buffers
+- **Implemented proper firmware restart with hardware reset**
+  - Added `reset` command that triggers `machine.CPUReset()` for complete MCU reset
+  - Matches behavior of traditional Klipper firmwares (AVR, STM32)
+  - Ensures all hardware peripherals are properly reset, not just software state
+  - TODO Klipper `FIRMWARE_RESTART` command now performs actual hardware reset
 - Fixed TinyGo GC issue with compressed dictionary buffer (`bytes.Buffer` data being reclaimed)
 - Fixed deadlock in dictionary `GetChunk()` function (RWMutex reentrancy issue)
 - Added defensive copying to prevent memory corruption during USB transmission

@@ -24,9 +24,9 @@ var (
 	errors           uint32
 
 	// USB connection state tracking
-	lastUSBActivity    uint64 // Last time we successfully read/wrote USB data
-	lastWriteSuccess   uint64 // Last time we successfully wrote USB data
-	usbWasDisconnected bool
+	lastUSBActivity          uint64 // Last time we successfully read/wrote USB data
+	lastWriteSuccess         uint64 // Last time we successfully wrote USB data
+	usbWasDisconnected       bool
 	consecutiveWriteFailures uint32
 )
 
@@ -62,6 +62,8 @@ func main() {
 		// Clear buffers on host reset
 		inputBuffer.Reset()
 		outputBuffer.Reset()
+
+		core.ResetFirmwareState() // Clear shutdown flag and config state
 		// Flash LED rapidly on reset
 		FlashLED(3, 50)
 	})
@@ -71,6 +73,13 @@ func main() {
 		writeUSB()
 	})
 	core.SetGlobalTransport(transport)
+
+	// Set reset handler to trigger hardware reset
+	// This is used by Klipper's FIRMWARE_RESTART command
+	core.SetResetHandler(func() {
+		// Trigger hardware reset - this will reboot the MCU
+		machine.CPUReset()
+	})
 
 	// Flash LED to show we're starting
 	FlashLED(5, 100)
@@ -173,6 +182,7 @@ func usbReaderLoop() {
 				inputBuffer.Reset()
 				outputBuffer.Reset()
 				transport.Reset()
+				core.ResetFirmwareState() // Clear shutdown flag and config state
 				messagesReceived = 0
 				messagesSent = 0
 				consecutiveWriteFailures = 0
