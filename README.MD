@@ -6,11 +6,11 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 ## Features (Planned)
 
-- 🚀 Full Klipper protocol compatibility
-- 🔧 Written in TinyGo for optimal embedded performance
-- 📦 Modular architecture for easy customization
-- 🎯 Type-safe implementation with Go's strong typing
-- ⚡ Support for modern microcontrollers (RP2040, STM32, etc.)
+- Full Klipper protocol compatibility
+- Written in TinyGo for optimal embedded performance
+- Modular architecture for easy customization
+- Type-safe implementation with Go's strong typing
+- Support for modern microcontrollers (RP2040, STM32, etc.)
 
 ## Status
 
@@ -59,17 +59,11 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 Gopper uses **native USB CDC (Communications Device Class)** for communication with the Klipper host. This provides:
 
-- 🔌 **Simple connectivity** - Just plug in a USB cable
-- ⚡ **Fast communication** - 12 Mbps (USB full-speed) vs 250 kbps (UART)
-- 🔧 **No adapter needed** - Direct USB connection
-- 📱 **Universal** - Works on Linux, macOS, and Windows
-
 When you flash Gopper to your board, it will enumerate as a USB serial device:
 - **Linux**: `/dev/ttyACM0`
 - **macOS**: `/dev/tty.usbmodem*`
 - **Windows**: `COM3` (or similar)
 
-See [test/USB_TESTING.md](test/USB_TESTING.md) for detailed USB testing information.
 
 ## Project Structure
 ```
@@ -79,7 +73,8 @@ gopper/
 ├── hardware/      # Hardware abstraction layer
 ├── motion/        # Motion control and kinematics
 ├── modules/       # Peripheral modules (steppers, sensors, etc.)
-└── targets/       # Target-specific implementations
+├── targets/       # Target-specific implementations
+└─ tinycompress/  # TinyCompress compression library (zlib compatible)
 ```
 
 ## Building
@@ -123,52 +118,8 @@ go test ./protocol/... ./core/...
 
 ## Testing with Klipper
 
-### Recommended: Containerized Testing (Hermetic Environment)
-
-The easiest and most reliable way to test:
-
-```bash
-# 1. Start containerized Klipper
-cd docker
-./start.sh
-
-# 2. Flash your firmware
-cd ..
-make rp2040
-# Hold BOOTSEL, plug USB, copy firmware to RPI-RP2 drive
-cp build/gopper-rp2040.uf2 /media/$USER/RPI-RP2/
-
-# 3. Run tests
-cd docker
-./test.sh
-
-# 4. View logs
-./logs.sh
-```
-
-**Benefits:**
-- ✅ No system-wide Klipper installation needed
-- ✅ Reproducible environment
-- ✅ Easy to reset/rebuild
-- ✅ Isolated from host system
-- ✅ Version-pinned Klipper (v0.12.0)
-
-See [docker/README.md](docker/README.md) for complete documentation.
-
-### Alternative: Quick Test (Standalone)
 
 Test protocol without any Klipper installation:
-
-```bash
-# Flash and test in one command
-./test/flash-and-test.sh pico      # For Pico 1 (RP2040)
-./test/flash-and-test.sh pico2     # For Pico 2 (RP2350)
-
-# Or manually
-python3 test/test-protocol.py /dev/ttyACM0
-```
-
-### Alternative: Manual Klipper Testing
 
 ```bash
 # 1. Install Klipper (if not using Docker)
@@ -177,6 +128,10 @@ cd klipper && ./scripts/install-octopi.sh
 
 # 2. Flash firmware
 cp build/gopper-rp2040.uf2 /media/$USER/RPI-RP2/
+#copy the uf2 to the RP2040 in Bootsel mode
+
+# or use this command to flash directly from the RP2040
+tinygo flash -target=pico -port=/dev/ttyACM0 build/gopper-rp2040.uf2
 
 # 3. Configure and run Klipper
 cp test/klipper-test.cfg ~/printer.cfg

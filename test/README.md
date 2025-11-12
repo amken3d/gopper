@@ -146,6 +146,33 @@ nano ~/printer.cfg
 # serial: /dev/ttyACM0
 ```
 
+**Recommended: Use Persistent Device Path**
+
+Instead of `/dev/ttyACM0` (which can change if you have multiple USB serial devices), use the persistent `/dev/serial/by-id/` path:
+
+```bash
+# List available USB serial devices by ID
+ls -l /dev/serial/by-id/
+
+# Example output:
+# lrwxrwxrwx 1 root root 13 Nov 12 10:00 usb-Raspberry_Pi_Pico-if00 -> ../../ttyACM0
+
+# Use this in your printer.cfg:
+[mcu]
+serial: /dev/serial/by-id/usb-Raspberry_Pi_Pico-if00
+```
+
+**What is this "by-id" path?**
+
+The `/dev/serial/by-id/` directory contains **persistent symbolic links** created by udev rules. These links:
+
+- ✅ **Stay consistent** across reboots and USB re-enumerations
+- ✅ **Unique per device** - Won't change if you plug in multiple USB devices
+- ✅ **Descriptive names** - Shows manufacturer/model (e.g., `usb-Raspberry_Pi_Pico-if00`)
+- ✅ **Recommended by Klipper** - More reliable than `/dev/ttyACM0`
+
+The link name is based on the USB device's **vendor ID, product ID, and serial number** (if available), making it unique and stable. The `-if00` suffix indicates interface 0 of the USB device.
+
 ### 3. Start Klipper
 
 ```bash
