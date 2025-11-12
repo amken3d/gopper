@@ -1,0 +1,32 @@
+name: workflow.yml
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Setup TinyGo
+        uses: acifani/setup-tinygo@v2
+        with:
+          tinygo-version: '0.31.0'
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build for RP2040
+        run: make rp2040
+
+      - name: Build for STM32F4
+        run: make stm32f4

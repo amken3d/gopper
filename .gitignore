@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+*.uf2
+*.bin
+*.hex
+*.elf
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# OS
+.DS_Store
+Thumbs.db
