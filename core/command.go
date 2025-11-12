@@ -1,7 +1,7 @@
 package core
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 )
 
@@ -84,7 +84,7 @@ func (r *CommandRegistry) GetCommand(id uint16) (*Command, bool) {
 func (r *CommandRegistry) Dispatch(cmdID uint16, data *[]byte) error {
 	cmd, ok := r.GetCommand(cmdID)
 	if !ok {
-		return fmt.Errorf("unknown command ID: %d", cmdID)
+		return errors.New("unknown command ID: " + itoa(int(cmdID)))
 	}
 
 	return cmd.Handler(data)
@@ -132,7 +132,12 @@ func (r *CommandRegistry) rebuildDictionary() {
 	dict := ""
 	for i := uint16(0); i < r.nextID; i++ {
 		if cmd, ok := r.commands[i]; ok {
-			dict += fmt.Sprintf("%s %s\n", cmd.Name, cmd.Format)
+			// dict += fmt.Sprintf("%s %s\n", cmd.Name, cmd.Format)
+			if cmd.Format != "" {
+				dict += cmd.Name + " " + cmd.Format + "\n"
+			} else {
+				dict += cmd.Name + "\n"
+			}
 		}
 	}
 	r.dictionary = dict

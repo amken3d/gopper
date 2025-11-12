@@ -151,3 +151,46 @@ func TestFifoBufferWrapAround(t *testing.T) {
 		t.Errorf("Wrap-around data mismatch: got %v", allData)
 	}
 }
+
+// TestFifoBufferDataWrapped tests the Data() method with wrapped buffer
+// This is critical for the protocol layer which uses Data() to inspect messages
+func TestFifoBufferDataWrapped(t *testing.T) {
+	fifo := NewFifoBuffer(10)
+
+	// Write initial data that will be partially consumed
+	fifo.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+
+	// Pop some data to advance read pointer
+	fifo.Pop(5) // Now read=5, write=8
+
+	// Write more data to wrap around
+	// Buffer has capacity 10, so write can go from 8 to 9, then wrap to 0, 1, 2, 3
+	written := fifo.Write([]byte{10, 11, 12, 13, 14, 15})
+	if written != 6 { // Should write 6 bytes: positions 8,9,0,1,2,3
+		t.Errorf("Expected to write 6 bytes, wrote %d", written)
+	}
+
+	// Now buffer contains:
+	// - Positions 5-9: [6, 7, 8, 10, 11]
+	// - Positions 0-3: [12, 13, 14, 15]
+	// So Data() should return [6, 7, 8, 10, 11, 12, 13, 14, 15]
+
+	data := fifo.Data()
+	expected := []byte{6, 7, 8, 10, 11, 12, 13, 14, 15}
+
+	if len(data) != len(expected) {
+		t.Errorf("Expected %d bytes from Data(), got %d", len(expected), len(data))
+	}
+
+	for i, val := range expected {
+		if i >= len(data) || data[i] != val {
+			t.Errorf("Data mismatch at index %d: expected %d, got %d (full data: %v)", i, val, data[i], data)
+			break
+		}
+	}
+
+	// Verify Available() matches Data() length
+	if fifo.Available() != len(data) {
+		t.Errorf("Available() returned %d but Data() has length %d", fifo.Available(), len(data))
+	}
+}

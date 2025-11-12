@@ -2,10 +2,7 @@ package core
 
 import (
 	"bytes"
-	"fmt"
-	"machine"
 	"sync"
-	"time"
 
 	"gopper/tinycompress"
 )
@@ -94,18 +91,6 @@ func (d *Dictionary) SetBuildVersions(versions string) {
 	d.buildVersions = versions
 }
 
-// FlashLED flashes the LED count times with the given delay
-func FlashLED(count int, delayMs int) {
-	state := machine.LED.Get()
-	for i := 0; i < count; i++ {
-		machine.LED.Low()
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
-		machine.LED.High()
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
-	}
-	machine.LED.Set(state)
-}
-
 // BuildDictionary builds and caches the dictionary (call after all commands registered)
 func (d *Dictionary) BuildDictionary() {
 	d.mu.Lock()
@@ -114,9 +99,6 @@ func (d *Dictionary) BuildDictionary() {
 	// Generate uncompressed JSON (without acquiring lock - we already have it)
 	jsonData := d.buildJSONLocked()
 
-	// Flash LED to show we got past JSON generation
-	FlashLED(3, 50)
-
 	// Compress using custom tinycompress/zlib (TinyGo-compatible implementation)
 	var buf bytes.Buffer
 	w := tinycompress.NewWriter(&buf)
@@ -124,14 +106,12 @@ func (d *Dictionary) BuildDictionary() {
 	if err != nil {
 		// If compression fails, use uncompressed
 		d.cachedDict = jsonData
-		FlashLED(5, 50) // 5 flashes indicates compression error
 		return
 	}
 	err = w.Close()
 	if err != nil {
 		// If close fails, use uncompressed
 		d.cachedDict = jsonData
-		FlashLED(5, 50) // 5 flashes indicates compression error
 		return
 	}
 
@@ -140,7 +120,6 @@ func (d *Dictionary) BuildDictionary() {
 	compressed := buf.Bytes()
 	d.cachedDict = make([]byte, len(compressed))
 	copy(d.cachedDict, compressed)
-	FlashLED(2, 50) // 2 flashes indicates successful compression
 }
 
 // Generate generates the complete dictionary in JSON format
@@ -200,7 +179,7 @@ func (d *Dictionary) buildJSONLocked() []byte {
 		result = append(result, '"')
 		result = append(result, []byte(name)...)
 		result = append(result, []byte(`":"`)...)
-		result = append(result, []byte(fmt.Sprintf("%v", c.Value))...)
+		result = append(result, []byte(valueToString(c.Value))...)
 		result = append(result, '"')
 		first = false
 	}
@@ -231,7 +210,7 @@ func (d *Dictionary) buildJSONLocked() []byte {
 				result = append(result, '"')
 				result = append(result, []byte(cmdFormat)...)
 				result = append(result, []byte(`":`)...)
-				result = append(result, []byte(fmt.Sprintf("%d", cmdID))...)
+				result = append(result, []byte(itoa(cmdID))...)
 				firstCmd = false
 				break
 			}
@@ -264,7 +243,7 @@ func (d *Dictionary) buildJSONLocked() []byte {
 				result = append(result, '"')
 				result = append(result, []byte(respFormat)...)
 				result = append(result, []byte(`":`)...)
-				result = append(result, []byte(fmt.Sprintf("%d", respID))...)
+				result = append(result, []byte(itoa(respID))...)
 				firstResp = false
 				break
 			}

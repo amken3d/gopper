@@ -155,13 +155,26 @@ func (f *FifoBuffer) Free() int {
 	return f.size - f.Available() - 1
 }
 
-// Data returns available data as a slice (may be split in two parts due to circular nature)
+// Data returns available data as a slice
+// When wrapped, this copies data into a contiguous slice for protocol processing
 func (f *FifoBuffer) Data() []byte {
 	if f.read <= f.write {
+		// Simple case: data is contiguous
 		return f.buf[f.read:f.write]
 	}
-	// For circular wrap, we can only return the first contiguous part
-	return f.buf[f.read:]
+	// Wrapped case: copy both segments into contiguous slice
+	// This is critical for correct message parsing
+	avail := f.Available()
+	result := make([]byte, avail)
+
+	// Copy first segment (read to end of buffer)
+	firstLen := f.size - f.read
+	copy(result, f.buf[f.read:])
+
+	// Copy second segment (start of buffer to write)
+	copy(result[firstLen:], f.buf[:f.write])
+
+	return result
 }
 
 // Pop removes n bytes from the front
