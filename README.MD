@@ -65,6 +65,7 @@ When you flash Gopper to your board, it will enumerate as a USB serial device:
 - **macOS**: `/dev/tty.usbmodem*`
 - **Windows**: `COM3` (or similar)
 
+-- If you have UDEV rules setup, then the USB device will enumarate in a predictable fashion with a id or path that is kept constant using the vendor id, device id combination
 
 ## Project Structure
 ```
