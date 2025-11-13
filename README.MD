@@ -147,7 +147,7 @@ See [test/README.md](test/README.md) for detailed testing instructions and troub
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Acknowledgments
-
+(This project is not endorsed by any of the following)
 - [Klipper](https://github.com/Klipper3d/klipper) by Kevin O'Connor
 - [Anchor](https://github.com/Annex-Engineering/anchor) for inspiration on protocol implementation
 - The TinyGo community
