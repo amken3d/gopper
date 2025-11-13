@@ -1,5 +1,5 @@
 # Gopper
-![gopper_gopher.png](gopper_gopher.png)
+![Gopper_Logo.png](Gopper_Logo.png)
 
 A Klipper firmware implementation in TinyGo for modern microcontrollers.
 
@@ -39,6 +39,7 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - `finalize_config`
   - `allocate_oids`
   - `emergency_stop`
+  - `restart`
 - ✅ RP2040 hardware timer integration
 - ✅ USB CDC communication (native USB support)
 - ✅ Complete main loop with USB I/O
@@ -51,9 +52,9 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 ## Supported Hardware (Planned)
 
-- RP2040 (Raspberry Pi Pico)
-- STM32F4 series
-- STM32H7 series
+- RP2040 (Raspberry Pi Pico) - Partially working
+- STM32F4 series - Not started
+- STM32H7 series - Not Started
 - More to come...
 
 ## Communication
@@ -65,6 +66,20 @@ When you flash Gopper to your board, it will enumerate as a USB serial device:
 - **macOS**: `/dev/tty.usbmodem*`
 - **Windows**: `COM3` (or similar)
 
+**Recommended: Use Persistent Device Path**
+
+Instead of `/dev/ttyACM0` (which can change if you have multiple USB serial devices), use the persistent `/dev/serial/by-id/` path:
+
+```bash
+# List available USB serial devices by ID
+ls -l /dev/serial/by-id/
+
+# Example output:
+# lrwxrwxrwx 1 root root 13 Nov 12 10:00 usb-Raspberry_Pi_Pico-if00 -> ../../ttyACM0
+
+# Use this in your printer.cfg:
+[mcu]
+serial: /dev/serial/by-id/usb-Raspberry_Pi_Pico-if00
 
 ## Project Structure
 ```
@@ -150,7 +165,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 - [Klipper](https://github.com/Klipper3d/klipper) by Kevin O'Connor
 - [Anchor](https://github.com/Annex-Engineering/anchor) for inspiration on protocol implementation
 - The TinyGo community
-
+### This project is not endorsed or affiliated with Klipper, Anchor,  or TinyGo in any way. Please do not contact Klipper, Anchor, or TinyGo for support.
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details
