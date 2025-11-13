@@ -9,6 +9,11 @@
 // - Atomic operations for thread-safe counters
 // - Independent LED control from each core
 // - Performance benchmarking across cores
+// - Inter-core latency measurement (for real-time system design)
+//
+// MODE SELECTION:
+// Set runLatencyBenchmark = true to run detailed latency measurements
+// Set runLatencyBenchmark = false to run functional tests + continuous mode
 
 package main
 
@@ -18,6 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// Configuration: Choose test mode
+const runLatencyBenchmark = false // Set to true for latency benchmarks
 
 // Shared data between cores (must use atomic operations or volatile)
 var (
@@ -72,48 +80,79 @@ func main() {
 	tasksComplete.Store(0)
 	core1Ready.Store(false)
 
-	// Launch Core 1
-	println("Core 0: Launching Core 1...")
-	machine.Core1.Start(core1Main)
+	// Check which mode to run
+	if runLatencyBenchmark {
+		// LATENCY BENCHMARK MODE
+		println("\n" + "="*60)
+		println("INTER-CORE LATENCY BENCHMARK MODE")
+		println("="*60)
+		println("Critical measurements for real-time system design\n")
+		time.Sleep(1 * time.Second)
 
-	// Wait for Core 1 to be ready
-	println("Core 0: Waiting for Core 1 to be ready...")
-	for !core1Ready.Load() {
-		time.Sleep(10 * time.Millisecond)
+		runLatencyBenchmarks()
+
+		println("\n=== Latency Benchmarks Complete ===")
+		println("Board will now idle. Reset to run again or change mode.\n")
+
+		// Slow blink to indicate completion
+		for {
+			ledCore0.Toggle()
+			time.Sleep(1 * time.Second)
+		}
+	} else {
+		// FUNCTIONAL TEST MODE
+		println("\n" + "="*60)
+		println("FUNCTIONAL TEST MODE")
+		println("="*60)
+		println("Running basic multicore functionality tests\n")
+		println("To run latency benchmarks:")
+		println("  1. Set runLatencyBenchmark = true in main.go")
+		println("  2. Rebuild and flash\n")
+		time.Sleep(1 * time.Second)
+
+		// Launch Core 1
+		println("Core 0: Launching Core 1...")
+		machine.Core1.Start(core1Main)
+
+		// Wait for Core 1 to be ready
+		println("Core 0: Waiting for Core 1 to be ready...")
+		for !core1Ready.Load() {
+			time.Sleep(10 * time.Millisecond)
+		}
+		println("Core 0: Core 1 is ready!")
+
+		// Flash both LEDs to indicate dual-core operation started
+		for i := 0; i < 5; i++ {
+			ledCore0.Set(!ledCore0.Get())
+			ledCore1.Set(!ledCore1.Get())
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Test 1: Basic counter increment
+		println("\n=== Test 1: Independent Counters ===")
+		testIndependentCounters()
+
+		// Test 2: Inter-core messaging
+		println("\n=== Test 2: Inter-Core Messaging ===")
+		testInterCoreMessaging()
+
+		// Test 3: Task distribution
+		println("\n=== Test 3: Task Distribution ===")
+		testTaskDistribution()
+
+		// Test 4: Performance benchmark
+		println("\n=== Test 4: Performance Benchmark ===")
+		testPerformanceBenchmark()
+
+		// Success - flash both LEDs in sync
+		println("\n=== All Tests Complete ===")
+		println("Core 0 final count:", core0Counter.Load())
+		println("Core 1 final count:", core1Counter.Load())
+
+		// Enter continuous operation mode
+		println("\n=== Entering Continuous Operation Mode ===")
+		continuousOperation()
 	}
-	println("Core 0: Core 1 is ready!")
-
-	// Flash both LEDs to indicate dual-core operation started
-	for i := 0; i < 5; i++ {
-		ledCore0.Set(!ledCore0.Get())
-		ledCore1.Set(!ledCore1.Get())
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// Test 1: Basic counter increment
-	println("\n=== Test 1: Independent Counters ===")
-	testIndependentCounters()
-
-	// Test 2: Inter-core messaging
-	println("\n=== Test 2: Inter-Core Messaging ===")
-	testInterCoreMessaging()
-
-	// Test 3: Task distribution
-	println("\n=== Test 3: Task Distribution ===")
-	testTaskDistribution()
-
-	// Test 4: Performance benchmark
-	println("\n=== Test 4: Performance Benchmark ===")
-	testPerformanceBenchmark()
-
-	// Success - flash both LEDs in sync
-	println("\n=== All Tests Complete ===")
-	println("Core 0 final count:", core0Counter.Load())
-	println("Core 1 final count:", core1Counter.Load())
-
-	// Enter continuous operation mode
-	println("\n=== Entering Continuous Operation Mode ===")
-	continuousOperation()
 }
 
 // core1Main runs on Core 1

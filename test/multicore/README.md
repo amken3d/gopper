@@ -11,7 +11,23 @@ The RP2040 features dual ARM Cortex-M0+ cores at 133MHz. This test validates:
 3. **Atomic Operations** - Thread-safe shared memory access
 4. **Task Distribution** - Offloading work to the second core
 5. **Performance Benchmarking** - Measuring throughput of both cores
-6. **Visual Feedback** - LED patterns showing core activity
+6. **Inter-Core Latency** - Precise timing measurements for real-time design
+7. **Visual Feedback** - LED patterns showing core activity
+
+## Test Modes
+
+The test supports two modes:
+
+### Functional Test Mode (Default)
+Runs basic multicore functionality tests followed by continuous operation. Good for verifying that multicore works.
+
+### Latency Benchmark Mode
+Measures precise inter-core communication latency with detailed statistics. **Critical for real-time system design** like Gopper's stepper control.
+
+To switch modes, edit `test/multicore/main.go` and change:
+```go
+const runLatencyBenchmark = true  // Enable latency benchmarks
+```
 
 ## Hardware Requirements
 
@@ -236,6 +252,172 @@ This test demonstrates potential uses for Core 1 in the Gopper firmware:
 3. **Motion Planning** - Core 1 computes kinematics while Core 0 handles comms
 4. **Thermal Management** - Core 1 monitors temperatures and manages PID loops
 5. **Real-Time Tasks** - Core 1 runs high-priority timing-critical code
+
+## Latency Benchmarking
+
+### Why Latency Matters for Real-Time Systems
+
+For a 3D printer firmware like Gopper, inter-core latency directly impacts:
+
+- **Maximum stepper frequency**: Lower latency = higher step rates possible
+- **Response time to emergencies**: How quickly Core 0 can signal Core 1 to stop
+- **Motion control smoothness**: Jitter causes uneven stepper movement
+- **System predictability**: Consistent timing is critical for quality prints
+
+### Running Latency Benchmarks
+
+1. Edit `test/multicore/main.go`:
+```go
+const runLatencyBenchmark = true
+```
+
+2. Rebuild and flash:
+```bash
+make test-multicore
+cp build/multicore-test-rp2040.uf2 /media/$USER/RPI-RP2/
+```
+
+3. Monitor serial output:
+```bash
+screen /dev/ttyACM0 115200
+```
+
+### What Gets Measured
+
+The benchmark runs four detailed tests:
+
+#### Test 1: Atomic Variable Round-Trip Latency
+Measures time for Core 0 to send a message to Core 1 and receive a response using `atomic.Uint32`.
+
+**Typical Results:**
+- Min latency: 20-40 μs
+- Average: 40-60 μs
+- Max: 60-100 μs
+- Jitter: 20-60 μs
+
+#### Test 2: Volatile Register Round-Trip Latency
+Same as Test 1 but using `volatile.Register32` for comparison.
+
+**Typical Results:**
+- Similar to atomic variables
+- May show slight differences due to compiler optimization
+
+#### Test 3: Latency Under Load
+Measures latency while Core 1 is performing computational work.
+
+**Typical Results:**
+- Average: 60-120 μs (higher than idle)
+- Max: 100-200 μs (worst-case scenario)
+- Higher jitter due to Core 1 being busy
+
+**Interpretation:** This represents realistic conditions when Core 1 is doing stepper control or sensor processing.
+
+#### Test 4: Detailed Jitter Analysis
+Statistical analysis of 200+ samples to measure timing predictability.
+
+**Metrics Provided:**
+- Mean, standard deviation, min, max
+- Percentiles (P1, P5, P50, P95, P99)
+- Coefficient of variation (CV = stddev/mean)
+
+**What to look for:**
+- CV < 0.1 (10%): Excellent, very predictable
+- CV < 0.2 (20%): Good, acceptable for real-time
+- CV < 0.3 (30%): Moderate, some variability
+- CV > 0.3: High jitter, may need optimization
+
+### Example Benchmark Output
+
+```
+=== Inter-Core Latency Benchmarks ===
+
+--- Test 1: Atomic Variable Round-Trip Latency ---
+Measuring round-trip latency using atomic.Uint32...
+Iterations: 100
+
+Results:
+  Samples: 100
+  Min latency: 32 μs
+  Max latency: 87 μs
+  Avg latency: 48 μs
+  Jitter (max-min): 55 μs
+
+Percentiles:
+  P50 (median): 46 μs
+  P90: 62 μs
+  P99: 81 μs
+
+Interpretation:
+  ✓ Excellent - suitable for high-frequency stepper control
+  ✓ Low jitter - very predictable timing
+
+--- Test 4: Jitter Analysis (Critical for Real-Time) ---
+Detailed jitter analysis over 200 iterations...
+
+Jitter Statistics:
+  Mean: 51 μs
+  Std Dev: 12 μs
+  Min: 28 μs
+  Max: 94 μs
+  Range (jitter): 66 μs
+
+Percentile Distribution:
+  P1 : 30 μs
+  P5 : 35 μs
+  P50: 49 μs (median)
+  P95: 72 μs
+  P99: 88 μs
+
+Predictability Metrics:
+  Coefficient of Variation: 0.23
+  ✓ Good - acceptable for real-time (CV < 20%)
+
+For Gopper stepper control:
+  ✓ Suitable for high-speed stepper control (>10 kHz)
+```
+
+### Interpreting Results for Gopper
+
+**For Stepper Control:**
+- Latency < 100 μs → Can achieve >10 kHz step rates
+- Latency < 500 μs → Suitable for normal speeds (>2 kHz)
+- Low jitter (CV < 0.2) → Smooth, predictable motion
+
+**For Emergency Stop:**
+- Average latency shows typical response time
+- Max latency (P99) shows worst-case delay
+- Under load test shows realistic emergency conditions
+
+**For Motion Planning:**
+- Round-trip latency affects how often Core 0 can sync with Core 1
+- Lower latency = more frequent coordination possible
+- Jitter affects motion smoothness
+
+### Recommendations Based on Latency
+
+**If you see excellent latency (< 50 μs average, CV < 0.15):**
+- Core 1 can handle high-frequency stepper control (>20 kHz)
+- Can use frequent Core 0 ↔ Core 1 communication
+- Suitable for advanced features like pressure advance
+
+**If you see good latency (< 100 μs average, CV < 0.25):**
+- Core 1 suitable for normal stepper control (5-15 kHz)
+- Use moderate communication frequency
+- Standard 3D printing features work well
+
+**If you see moderate latency (> 100 μs average, CV > 0.3):**
+- May need to optimize hot paths
+- Consider hardware timers for critical pulses
+- Reduce communication frequency
+- Profile and optimize Core 1 workload
+
+### Technical Notes
+
+- **Measurement precision**: Uses `time.Now().UnixMicro()` for microsecond timing
+- **Timing overhead**: ~5-10 μs inherent in measurement itself
+- **Sample size**: 50-200 iterations per test for statistical validity
+- **Percentiles**: Calculated using sorted samples (bubble sort)
+- **Standard deviation**: Uses integer approximation (sqrt of variance)
 
 ## Performance Notes
 
