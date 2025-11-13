@@ -39,7 +39,6 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - `finalize_config`
   - `allocate_oids`
   - `emergency_stop`
-  - `restart`
 - ✅ RP2040 hardware timer integration
 - ✅ USB CDC communication (native USB support)
 - ✅ Complete main loop with USB I/O
@@ -52,9 +51,9 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 ## Supported Hardware (Planned)
 
-- RP2040 (Raspberry Pi Pico) - Partially working
-- STM32F4 series - Not started
-- STM32H7 series - Not Started
+- RP2040 (Raspberry Pi Pico)
+- STM32F4 series
+- STM32H7 series
 - More to come...
 
 ## Communication
