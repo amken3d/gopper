@@ -28,11 +28,22 @@ Gopper is a Klipper firmware implementation written in TinyGo for modern microco
 - **Fixed circular buffer wrap-around bug** causing timeouts after ~6 seconds of communication
   - `FifoBuffer.Data()` was only returning first segment when wrapped, causing message corruption
   - Added proper contiguous data copy for wrapped buffers
+- **Fixed firmware restart hanging/crashing issue**
+  - `FIRMWARE_RESTART` command was hanging because MCU reset occurred before ACK was sent
+  - Root cause: `machine.CPUReset()` (ARM SYSRESETREQ) doesn't properly reset RP2040
+  - **Solution**: Use RP2040 watchdog timer for reset instead
+    - Watchdog reset properly resets all hardware including USB controller
+    - Must call `machine.Watchdog.Start()` after configuring timeout
+    - Must disable watchdog on boot to clear previous state
+  - Deferred reset until after protocol ACK is transmitted to host
+  - Added `resetPending` flag and `CheckPendingReset()` function
+  - Klipper now properly receives ACK and reconnects after firmware restart
 - **Implemented proper firmware restart with hardware reset**
-  - Added `reset` command that triggers `machine.CPUReset()` for complete MCU reset
+  - Added `reset` command that triggers watchdog reset for complete MCU reset
+  - Uses `machine.Watchdog` API with 1ms timeout for reliable RP2040 reset
+  - Watchdog disabled on boot (`TimeoutMillis: 0`) to prevent issues after reset
   - Matches behavior of traditional Klipper firmwares (AVR, STM32)
   - Ensures all hardware peripherals are properly reset, not just software state
-  - TODO Klipper `FIRMWARE_RESTART` command now performs actual hardware reset
 - Fixed TinyGo GC issue with compressed dictionary buffer (`bytes.Buffer` data being reclaimed)
 - Fixed deadlock in dictionary `GetChunk()` function (RWMutex reentrancy issue)
 - Added defensive copying to prevent memory corruption during USB transmission

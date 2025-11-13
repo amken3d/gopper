@@ -206,6 +206,10 @@ func SetGlobalTransport(transport *protocol.Transport) {
 // Global reset handler (set by target-specific code)
 var globalResetHandler func()
 
+// resetPending is set when a reset command is received
+// The actual reset happens in the main loop after ACK is sent
+var resetPending uint32 // atomic bool
+
 // SetResetHandler sets the platform-specific reset handler
 func SetResetHandler(handler func()) {
 	globalResetHandler = handler
@@ -213,10 +217,23 @@ func SetResetHandler(handler func()) {
 
 // handleReset triggers a hardware reset of the MCU
 // This is used by Klipper's FIRMWARE_RESTART command
-func handleReset(data *[]byte) error {
-	if globalResetHandler != nil {
-		globalResetHandler()
-		// Should never return - reset handler should reset the MCU
-	}
+// NOTE: The actual reset is deferred until after the ACK is sent to the host
+func handleReset(_ *[]byte) error {
+	// Set flag to trigger reset in main loop
+	// Don't reset immediately - we need to send ACK first!
+	atomic.StoreUint32(&resetPending, 1)
 	return nil
+}
+
+// CheckPendingReset checks if a reset was requested and executes it
+// This should be called from the main loop after all pending messages are sent
+func CheckPendingReset() {
+	if atomic.LoadUint32(&resetPending) != 0 {
+		// Trigger the reset immediately
+		// The reset handler (watchdog) has its own built-in delay
+		if globalResetHandler != nil {
+			globalResetHandler()
+			// Should never return - reset handler should reset the MCU
+		}
+	}
 }

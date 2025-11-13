@@ -31,6 +31,10 @@ var (
 )
 
 func main() {
+	// CRITICAL: Disable watchdog on boot to clear any previous state
+	// This prevents issues with watchdog persisting across resets
+	machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+
 	// Setup LED for status indication
 	debugLED = machine.LED
 	debugLED.Configure(machine.PinConfig{Mode: machine.PinOutput})
@@ -74,11 +78,17 @@ func main() {
 	})
 	core.SetGlobalTransport(transport)
 
-	// Set reset handler to trigger hardware reset
+	// Set reset handler to trigger watchdog reset (recommended for RP2040)
 	// This is used by Klipper's FIRMWARE_RESTART command
 	core.SetResetHandler(func() {
-		// Trigger hardware reset - this will reboot the MCU
-		machine.CPUReset()
+		// Use watchdog reset instead of ARM SYSRESETREQ
+		// This is more reliable on RP2040 and handles USB re-enumeration better
+		machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
+		machine.Watchdog.Start()
+		// Wait for reset (should happen in ~1ms)
+		for {
+			time.Sleep(1 * time.Millisecond)
+		}
 	})
 
 	// Flash LED to show we're starting
@@ -142,6 +152,10 @@ func main() {
 
 				debugLED.High()
 			}
+
+			// Check for pending reset after all messages sent
+			// This ensures the ACK has been transmitted before reset
+			core.CheckPendingReset()
 
 			// Process scheduled timers
 			core.ProcessTimers()
