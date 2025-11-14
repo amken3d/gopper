@@ -33,7 +33,10 @@ var (
 func main() {
 	// CRITICAL: Disable watchdog on boot to clear any previous state
 	// This prevents issues with watchdog persisting across resets
-	machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+	err := machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+	if err != nil {
+		return
+	}
 
 	// Setup LED for status indication
 	debugLED = machine.LED
@@ -46,8 +49,14 @@ func main() {
 	InitClock()
 	core.TimerInit()
 
+	// Initialize ADC hardware
+	InitADC()
+
 	// Initialize core commands
 	core.InitCoreCommands()
+
+	// Initialize ADC commands
+	core.InitADCCommands()
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
@@ -83,8 +92,14 @@ func main() {
 	core.SetResetHandler(func() {
 		// Use watchdog reset instead of ARM SYSRESETREQ
 		// This is more reliable on RP2040 and handles USB re-enumeration better
-		machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
-		machine.Watchdog.Start()
+		err = machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
+		if err != nil {
+			return
+		}
+		err = machine.Watchdog.Start()
+		if err != nil {
+			return
+		}
 		// Wait for reset (should happen in ~1ms)
 		for {
 			time.Sleep(1 * time.Millisecond)

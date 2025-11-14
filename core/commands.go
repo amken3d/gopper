@@ -162,6 +162,20 @@ func handleEmergencyStop(data *[]byte) error {
 	return nil
 }
 
+// TryShutdown triggers a firmware shutdown with a reason message
+// This is used by safety mechanisms like ADC range checking
+func TryShutdown(reason string) {
+	atomic.StoreUint32(&globalState.isShutdown, 1)
+	// TODO: Send shutdown message to host with reason
+	// For now, just set the shutdown flag
+	_ = reason
+}
+
+// IsShutdown returns true if the firmware is in shutdown state
+func IsShutdown() bool {
+	return atomic.LoadUint32(&globalState.isShutdown) != 0
+}
+
 // ResetFirmwareState resets the firmware state for reconnection
 // This is called when USB reconnects or firmware restart is requested
 func ResetFirmwareState() {
