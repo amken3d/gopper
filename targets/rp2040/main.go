@@ -46,8 +46,14 @@ func main() {
 	InitClock()
 	core.TimerInit()
 
+	// Initialize ADC hardware
+	InitADC()
+
 	// Initialize core commands
 	core.InitCoreCommands()
+
+	// Initialize ADC commands
+	core.InitADCCommands()
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
