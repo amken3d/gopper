@@ -22,7 +22,9 @@ Gopper is a Klipper firmware implementation written in TinyGo for modern microco
   - config_analog_in and query_analog_in commands
   - Periodic sampling with oversampling support
   - Min/max range checking with automatic shutdown
-  - RP2040 12-bit ADC implementation (GPIO 26-29)
+  - RP2040/RP2350A 12-bit ADC (GPIO 26-29, 4 channels + temp sensor)
+  - RP2350B 12-bit ADC (GPIO 40-47, 8 channels + temp sensor)
+  - Internal temperature sensor support (pin 4 or 8 depending on variant)
 
 ### Known Issues
 - ⚠️ No stepper motor control implemented yet

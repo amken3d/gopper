@@ -24,6 +24,41 @@ targets/rp2040/adc.go - RP2040-specific ADC implementation
 3. **Timer-Based Sampling**: Uses the scheduler for periodic ADC reads
 4. **Range Checking**: Safety mechanism to detect out-of-range values
 
+## Chip Variant Support
+
+Gopper supports ADC on multiple RP2040/RP2350 variants with different pin configurations:
+
+### RP2040 (QFN-56)
+- **ADC Channels**: 5 (ADC0-ADC4)
+- **GPIO Pins**: 26-29 (ADC0-ADC3)
+- **Temperature Sensor**: Pin 4 (ADC4)
+- **Resolution**: 12-bit (0-4095)
+- **Sample Rate**: 500 kSPS
+
+### RP2350A (QFN-60)
+- **ADC Channels**: 5 (ADC0-ADC4) - Same as RP2040
+- **GPIO Pins**: 26-29 (ADC0-ADC3)
+- **Temperature Sensor**: Pin 4 (ADC4)
+- **Resolution**: 12-bit (0-4095)
+- **Sample Rate**: 500 kSPS
+
+### RP2350B (QFN-80)
+- **ADC Channels**: 9 (ADC0-ADC8)
+- **GPIO Pins**: 40-47 (ADC0-ADC7) - Different from RP2040/RP2350A!
+- **Temperature Sensor**: Pin 8 (ADC8)
+- **Resolution**: 12-bit (0-4095)
+- **Sample Rate**: 500 kSPS
+
+**Important Note**: RP2350B uses different GPIO pins (40-47) instead of 26-29. Make sure your Klipper configuration matches your hardware variant.
+
+### Pin Mapping Summary
+
+| Chip | ADC0 | ADC1 | ADC2 | ADC3 | ADC4 | ADC5 | ADC6 | ADC7 | Temp Sensor |
+|------|------|------|------|------|------|------|------|------|-------------|
+| RP2040 | GPIO 26 | GPIO 27 | GPIO 28 | GPIO 29 | - | - | - | - | Pin 4 |
+| RP2350A | GPIO 26 | GPIO 27 | GPIO 28 | GPIO 29 | - | - | - | - | Pin 4 |
+| RP2350B | GPIO 40 | GPIO 41 | GPIO 42 | GPIO 43 | GPIO 44 | GPIO 45 | GPIO 46 | GPIO 47 | Pin 8 |
+
 ## Protocol Commands
 
 ### config_analog_in
@@ -34,14 +69,22 @@ Configures a GPIO pin for analog input sampling.
 
 **Parameters**:
 - `oid`: Object ID for this analog input (0-255)
-- `pin`: GPIO pin number (26-29 for RP2040 ADC0-ADC3)
+- `pin`: GPIO pin number (see chip variant table above)
+  - RP2040/RP2350A: 26-29 for GPIO ADCs, 4 for temp sensor
+  - RP2350B: 40-47 for GPIO ADCs, 8 for temp sensor
 
-**Example**:
+**Examples**:
 ```
+# RP2040/RP2350A - Configure GPIO 26 as ADC
 config_analog_in oid=0 pin=26
-```
 
-This configures GPIO 26 (ADC0 on RP2040) as analog input with object ID 0.
+# RP2350B - Configure GPIO 40 as ADC
+config_analog_in oid=0 pin=40
+
+# Any variant - Configure temperature sensor
+config_analog_in oid=1 pin=4   # RP2040/RP2350A
+config_analog_in oid=1 pin=8   # RP2350B
+```
 
 ### query_analog_in
 
@@ -108,41 +151,77 @@ Sent by firmware to report ADC values to the host.
    - If violations reach `range_check_count`, firmware triggers shutdown
    - In-range readings reset the violation counter
 
-## RP2040 Implementation Details
+## Hardware Implementation Details
 
-### ADC Specifications
+### ADC Specifications (All Variants)
 
 - **Resolution**: 12-bit (0-4095)
-- **Reference Voltage**: 3.3V (or external VREF on ADC3)
-- **Channels**: 5 total
-  - ADC0: GPIO 26
-  - ADC1: GPIO 27
-  - ADC2: GPIO 28
-  - ADC3: GPIO 29 (can be used for external VREF)
-  - ADC4: Internal temperature sensor (not currently exposed)
+- **Sample Rate**: 500 kSPS
+- **Reference Voltage**: 3.3V (or external VREF)
+- **Conversion Time**: ~2µs (synchronous)
 
 ### Conversion Speed
 
-RP2040 ADC conversions are very fast (~2µs), so the implementation treats them as synchronous. The `adcSampleImpl` function always returns `ready=true`.
+RP2040/RP2350 ADC conversions are very fast (~2µs), so the implementation treats them as synchronous. The `adcSampleImpl` function always returns `ready=true`.
 
-### Pin Mapping
+### Pin Mapping by Variant
 
-The implementation maps GPIO numbers to TinyGo's `machine.ADC` types:
-
+**RP2040/RP2350A (QFN-56/60):**
 ```go
-GPIO 26 → machine.ADC0
-GPIO 27 → machine.ADC1
-GPIO 28 → machine.ADC2
-GPIO 29 → machine.ADC3
+GPIO 26 → ADC Channel 0
+GPIO 27 → ADC Channel 1
+GPIO 28 → ADC Channel 2
+GPIO 29 → ADC Channel 3
+Pin 4   → Temperature Sensor (ADC Channel 4)
 ```
+
+**RP2350B (QFN-80):**
+```go
+GPIO 40 → ADC Channel 0
+GPIO 41 → ADC Channel 1
+GPIO 42 → ADC Channel 2
+GPIO 43 → ADC Channel 3
+GPIO 44 → ADC Channel 4
+GPIO 45 → ADC Channel 5
+GPIO 46 → ADC Channel 6
+GPIO 47 → ADC Channel 7
+Pin 8   → Temperature Sensor (ADC Channel 8)
+```
+
+**Note**: The firmware currently supports both pin numbering schemes and will accept whichever pins are valid for your hardware.
 
 ### Value Scaling
 
-TinyGo's `machine.ADC.Get()` returns 16-bit values (0-65535), but RP2040 ADC is 12-bit. The implementation scales back to 12-bit:
+TinyGo's `machine.ADC.Get()` returns 16-bit values (0-65535), but the hardware ADC is 12-bit. The implementation scales back to 12-bit:
 
 ```go
 value12bit = (value16bit * 4095) / 65535
 ```
+
+### Temperature Sensor
+
+The internal temperature sensor is accessible via special pin numbers (4 for RP2040/RP2350A, 8 for RP2350B).
+
+**Temperature Formula** (from datasheet):
+```
+T(°C) = 27 - (V_ADC - 0.706V) / 0.001721
+where V_ADC = ADC_value * 3.3V / 4096
+```
+
+The firmware returns the **raw 12-bit ADC value**. Klipper performs the temperature conversion on the host side using its thermistor tables.
+
+**Current Implementation Status**:
+- Temperature sensor pin configuration: ✅ Implemented
+- Raw ADC value reading: ⚠️ Placeholder (returns ~25°C equivalent)
+- Full hardware access: ⏳ Pending (requires register-level access)
+
+To fully implement temperature sensor reading, the firmware needs to:
+1. Enable temperature sensor bias (ADC.CS.TS_EN bit)
+2. Select ADC channel 4 or 8
+3. Read the raw 12-bit value
+4. Return to caller
+
+This will be implemented in a future update using TinyGo's device/rp package or unsafe pointer access to ADC registers.
 
 ## Safety Features
 
@@ -166,6 +245,75 @@ When ADC values go out of range:
 2. Firmware enters shutdown state
 3. Host detects shutdown via `get_config` response
 4. Host can stop all dangerous operations
+
+## Klipper Configuration Examples
+
+### RP2040/RP2350A Configuration
+
+For RP2040 or RP2350A (QFN-60) boards like the Raspberry Pi Pico:
+
+```ini
+[mcu]
+serial: /dev/serial/by-id/usb-Gopper_rp2040-...
+
+[extruder]
+sensor_type: Generic 3950
+sensor_pin: gpio26  # ADC0 - thermistor on GPIO 26
+min_temp: 0
+max_temp: 300
+
+[heater_bed]
+sensor_type: Generic 3950
+sensor_pin: gpio27  # ADC1 - thermistor on GPIO 27
+min_temp: 0
+max_temp: 120
+
+# Internal temperature monitoring (optional)
+[temperature_sensor mcu_temp]
+sensor_type: temperature_mcu  # Uses internal temp sensor
+sensor_mcu: mcu
+min_temp: 0
+max_temp: 100
+```
+
+### RP2350B Configuration
+
+For RP2350B (QFN-80) boards with extended ADC pins:
+
+```ini
+[mcu]
+serial: /dev/serial/by-id/usb-Gopper_rp2350-...
+
+[extruder]
+sensor_type: Generic 3950
+sensor_pin: gpio40  # ADC0 - thermistor on GPIO 40 (RP2350B)
+min_temp: 0
+max_temp: 300
+
+[heater_bed]
+sensor_type: Generic 3950
+sensor_pin: gpio41  # ADC1 - thermistor on GPIO 41 (RP2350B)
+min_temp: 0
+max_temp: 120
+
+# Additional ADC channels available on RP2350B
+[temperature_sensor chamber]
+sensor_type: Generic 3950
+sensor_pin: gpio42  # ADC2 - chamber thermistor
+
+# Internal temperature monitoring (optional)
+[temperature_sensor mcu_temp]
+sensor_type: temperature_mcu  # Uses internal temp sensor
+sensor_mcu: mcu
+min_temp: 0
+max_temp: 100
+```
+
+**Important Notes**:
+- Always verify your board's chip variant before configuring pin numbers
+- RP2350B uses GPIO 40-47 for ADC, NOT GPIO 26-29
+- The internal temperature sensor is automatically mapped to the correct channel
+- Thermistor types must match your hardware (Generic 3950, EPCOS 100K B57560G104F, etc.)
 
 ## Testing
 
