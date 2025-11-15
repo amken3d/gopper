@@ -53,6 +53,7 @@ func TimerDispatch() {
 	for timerList != nil && timerList.WakeTime <= currentTime {
 		timer := timerList
 		timerList = timer.Next
+		timer.Next = nil // Clear Next pointer to avoid circular references
 
 		// Call handler
 		result := timer.Handler(timer)

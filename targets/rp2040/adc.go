@@ -3,106 +3,150 @@
 package main
 
 import (
+	"device/rp"
+	"errors"
 	"gopper/core"
 	"machine"
+	"sync"
 )
 
-// RP2040 ADC configuration
-// The RP2040 has 5 ADC inputs:
-// - ADC0 (GPIO 26)
-// - ADC1 (GPIO 27)
-// - ADC2 (GPIO 28)
-// - ADC3 (GPIO 29) / ADC_VREF
-// - ADC4 (Temperature sensor - internal)
-//
-// ADC resolution: 12-bit (0-4095)
-// Reference voltage: 3.3V (or external VREF on ADC3)
+// RpAdcDriver implements core.ADCDriver using TinyGo's machine.ADC.
+type RpAdcDriver struct {
+	mu            sync.Mutex // serialize sampling if needed
+	arefMilliVolt uint32
 
-const (
-	// ADC hardware constants
-	ADC_MAX = 4095 // 12-bit ADC
-
-	// GPIO to ADC channel mapping
-	GPIO_ADC0 = 26
-	GPIO_ADC1 = 27
-	GPIO_ADC2 = 28
-	GPIO_ADC3 = 29
-)
-
-// ADC pin mapping: GPIO pin number -> machine.ADC
-var adcPins = map[uint32]machine.ADC{
-	GPIO_ADC0: machine.ADC{Pin: machine.ADC0},
-	GPIO_ADC1: machine.ADC{Pin: machine.ADC1},
-	GPIO_ADC2: machine.ADC{Pin: machine.ADC2},
-	GPIO_ADC3: machine.ADC{Pin: machine.ADC3},
-	// Note: ADC4 (temperature sensor) can be added if needed
+	// Per-channel TinyGo ADC handles.
+	// Adjust size/mapping to match your hardware channels.
+	channels map[core.ADCChannelID]*machine.ADC
 }
 
-// Track which pins are configured
-var configuredADCs = make(map[uint32]machine.ADC)
-
-// InitADC initializes the ADC peripheral on RP2040
-func InitADC() {
-	// TinyGo's machine.ADC handles most initialization automatically
-	// when Configure() is called on individual pins
-
-	// Set up the HAL function pointers
-	core.ADCSetup = adcSetupImpl
-	core.ADCSample = adcSampleImpl
-	core.ADCCancel = adcCancelImpl
+// NewRPAdcDriver constructs the driver but does not Init() it yet.
+func NewRPAdcDriver() *RpAdcDriver {
+	return &RpAdcDriver{
+		arefMilliVolt: 3300,
+		channels:      make(map[core.ADCChannelID]*machine.ADC),
+	}
 }
 
-// adcSetupImpl configures a GPIO pin for ADC sampling
-func adcSetupImpl(pin uint32) error {
-	// Check if this is a valid ADC pin
-	adcPin, exists := adcPins[pin]
-	if !exists {
-		// Not an ADC-capable pin
-		return errInvalidADCPin
+// rawInternalTemp returns the 12-bit raw ADC value from the internal temp sensor (0–4095).
+func rawInternalTemp() uint16 {
+	// Ensure ADC is initialized
+	if rp.ADC.CS.Get()&rp.ADC_CS_EN == 0 {
+		machine.InitADC()
 	}
 
-	// Configure the ADC pin
-	adcPin.Configure(machine.ADCConfig{})
+	// Enable temperature sensor
+	rp.ADC.CS.SetBits(rp.ADC_CS_TS_EN)
 
-	// Store configured ADC
-	configuredADCs[pin] = adcPin
+	// Select ADC channel 4 (internal temperature sensor)
+	const tempChannel = 4
+	rp.ADC.CS.ReplaceBits(
+		uint32(tempChannel)<<rp.ADC_CS_AINSEL_Pos,
+		rp.ADC_CS_AINSEL_Msk,
+		0,
+	)
+
+	// Start a single conversion
+	rp.ADC.CS.SetBits(rp.ADC_CS_START_ONCE)
+
+	// Wait until conversion is ready
+	for !rp.ADC.CS.HasBits(rp.ADC_CS_READY) {
+	}
+
+	// Read and return raw 12-bit result (0-4095)
+	// NOTE: We return the raw 12-bit value to match ADC_MAX=4095
+	// Klipper expects values in the range 0-ADC_MAX for temperature conversion
+	return uint16(rp.ADC.RESULT.Get())
+}
+
+func (d *RpAdcDriver) Init(cfg core.ADCConfig) error {
+	if cfg.Reference != 0 {
+		d.arefMilliVolt = cfg.Reference
+	}
+
+	// Use TinyGo's global ADC init, if available.
+	machine.InitADC()
+
+	// Register RP2040 ADC pin enumeration
+	// Klipper substitutes pin names from enumerations when parsing config
+	// The array index corresponds to the ADC channel number
+	pinNames := []string{
+		"ADC0",            // Index 0: ADC channel 0 (GPIO26)
+		"ADC1",            // Index 1: ADC channel 1 (GPIO27)
+		"ADC2",            // Index 2: ADC channel 2 (GPIO28)
+		"ADC3",            // Index 3: ADC channel 3 (GPIO29)
+		"ADC_TEMPERATURE", // Index 4: Internal temperature sensor
+	}
+	core.RegisterEnumeration("pin", pinNames)
 
 	return nil
 }
 
-// adcSampleImpl reads an ADC value from the specified pin
-// Returns (value, ready) where ready is always true for RP2040
-// (RP2040 ADC conversions are very fast, ~2µs)
-func adcSampleImpl(pin uint32) (uint16, bool) {
-	// Get the configured ADC pin
-	adcPin, exists := configuredADCs[pin]
-	if !exists {
-		return 0, false
+// ConfigureChannel sets up a specific ADC channel (pin mux, etc.).
+func (d *RpAdcDriver) ConfigureChannel(ch core.ADCChannelID) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// Internal temperature sensor (channel 4) is handled via rawInternalTempXX
+	// and does not need a machine.ADC instance.
+	if ch == 4 {
+		// Nothing to configure in TinyGo's high-level API; rawInternalTemp12/16
+		// directly manipulate the ADC peripheral.
+		return nil
 	}
 
-	// Read ADC value
-	// machine.ADC.Get() returns a 16-bit value, but RP2040 is 12-bit
-	// TinyGo scales it to 16-bit, so we need to scale back to 12-bit
-	value := adcPin.Get()
+	if _, ok := d.channels[ch]; ok {
+		// already configured
+		return nil
+	}
 
-	// Convert from 16-bit (0-65535) back to 12-bit (0-4095)
-	value12bit := uint16((uint32(value) * ADC_MAX) / 65535)
+	// Map core.ADCChannelID -> TinyGo ADC for external channels 0–3.
+	var adc machine.ADC
 
-	// RP2040 ADC is fast enough that we can consider it always ready
-	return value12bit, true
+	switch ch {
+	case 0:
+		adc = machine.ADC{Pin: machine.ADC0}
+	case 1:
+		adc = machine.ADC{Pin: machine.ADC1}
+	case 2:
+		adc = machine.ADC{Pin: machine.ADC2}
+	case 3:
+		adc = machine.ADC{Pin: machine.ADC3}
+	default:
+		// Unknown channel
+		return errors.New("unsupported ADC channel")
+	}
+
+	if err := adc.Configure(machine.ADCConfig{}); err != nil {
+		return err
+	}
+
+	d.channels[ch] = &adc
+	return nil
 }
 
-// adcCancelImpl cancels any pending ADC conversion
-// For RP2040, conversions are synchronous and very fast, so this is a no-op
-func adcCancelImpl(pin uint32) {
-	// No-op for RP2040 - conversions are immediate
+// ReadRaw returns a raw 12-bit ADC value (0-4095) from a channel.
+// This matches ADC_MAX=4095 that is reported to Klipper.
+func (d *RpAdcDriver) ReadRaw(ch core.ADCChannelID) (core.ADCValue, error) {
+	//d.mu.Lock()
+	//defer d.mu.Unlock()
+
+	// Internal temperature sensor: read raw 12-bit value
+	if ch == 4 {
+		raw12 := rawInternalTemp()
+		return core.ADCValue(raw12), nil
+	}
+
+	adc, ok := d.channels[ch]
+	if !ok {
+		if err := d.ConfigureChannel(ch); err != nil {
+			return 0, err
+		}
+		adc = d.channels[ch]
+	}
+
+	// TinyGo rp2040 ADC returns 12-bit value (0..4095)
+	// Return it directly without scaling to match ADC_MAX=4095
+	raw12 := adc.Get()
+	return core.ADCValue(raw12), nil
 }
-
-// Error type for invalid ADC pin
-type adcError string
-
-func (e adcError) Error() string {
-	return string(e)
-}
-
-const errInvalidADCPin = adcError("invalid ADC pin")

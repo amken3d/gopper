@@ -71,9 +71,16 @@ func (d *Dictionary) AddConstant(name string, value interface{}) {
 func (d *Dictionary) AddEnumeration(name string, values []string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// CRITICAL: Copy the values slice to prevent TinyGo GC from reclaiming it
+	// TinyGo's GC can be aggressive and may reclaim the original slice after
+	// the caller's function returns, leading to memory corruption
+	valuesCopy := make([]string, len(values))
+	copy(valuesCopy, values)
+
 	d.enumerations[name] = &Enumeration{
 		Name:   name,
-		Values: values,
+		Values: valuesCopy,
 	}
 }
 
@@ -249,7 +256,58 @@ func (d *Dictionary) buildJSONLocked() []byte {
 			}
 		}
 	}
-	result = append(result, []byte(`}}`)...)
+	result = append(result, '}') // Close responses object
+
+	// Add enumerations if any
+	if len(d.enumerations) > 0 {
+		result = append(result, []byte(`,"enumerations":{`)...)
+
+		// Sort enumeration names
+		enumNames := make([]string, 0, len(d.enumerations))
+		for name := range d.enumerations {
+			enumNames = append(enumNames, name)
+		}
+		// Simple bubble sort
+		for i := 0; i < len(enumNames); i++ {
+			for j := i + 1; j < len(enumNames); j++ {
+				if enumNames[i] > enumNames[j] {
+					enumNames[i], enumNames[j] = enumNames[j], enumNames[i]
+				}
+			}
+		}
+
+		firstEnum := true
+		for _, name := range enumNames {
+			enum := d.enumerations[name]
+			if !firstEnum {
+				result = append(result, ',')
+			}
+			result = append(result, '"')
+			result = append(result, []byte(name)...)
+			result = append(result, []byte(`":{`)...)
+
+			// Add enumeration values as key-value pairs (name: index)
+			// Skip empty values (null) - only include named enumerations
+			firstValue := true
+			for i, value := range enum.Values {
+				if value != "" {
+					if !firstValue {
+						result = append(result, ',')
+					}
+					result = append(result, '"')
+					result = append(result, []byte(value)...)
+					result = append(result, []byte(`":`)...)
+					result = append(result, []byte(itoa(i))...)
+					firstValue = false
+				}
+			}
+			result = append(result, '}')
+			firstEnum = false
+		}
+		result = append(result, '}')
+	}
+
+	result = append(result, '}')
 
 	// Return uncompressed for now - TinyGo's zlib may not be fully functional
 	// TODO: Implement compression once we verify it works in TinyGo

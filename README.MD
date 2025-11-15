@@ -43,7 +43,8 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 - ✅ USB CDC communication (native USB support)
 - ✅ Complete main loop with USB I/O
 
-**Phase 3: Stepper Control (Next)**
+**Phase 3: Peripheral Modules **
+- ✅ ADC driver infrastructure
 - ⏳ Stepper driver infrastructure
 - ⏳ Step pulse generation
 - ⏳ Queue-based motion planning
