@@ -3,6 +3,7 @@ package core
 import (
 	"gopper/protocol"
 	"sync/atomic"
+	"unsafe"
 )
 
 // FirmwareState holds the global firmware state
@@ -34,6 +35,10 @@ func InitCoreCommands() {
 	RegisterCommand("allocate_oids", "count=%c", handleAllocateOids)
 	RegisterCommand("emergency_stop", "", handleEmergencyStop)
 	RegisterCommand("reset", "", handleReset)
+
+	// Debug commands
+	RegisterCommand("debug_read", "order=%c addr=%u", handleDebugRead)
+	RegisterCommand("debug_result", "val=%u", nil)
 
 	// Response messages (MCU → Host)
 	RegisterCommand("clock", "clock=%u", nil)
@@ -155,11 +160,29 @@ func handleAllocateOids(data *[]byte) error {
 // handleEmergencyStop triggers an emergency stop
 func handleEmergencyStop(data *[]byte) error {
 	atomic.StoreUint32(&globalState.isShutdown, 1)
-	// TODO: Implement actual emergency stop behavior
+	// Stop ADC sampling and other safety‑critical activity.
+	ShutdownAllAnalogIn()
+	// TODO: Implement additional emergency stop behavior:
 	// - Stop all timers
 	// - Disable all outputs
 	// - Set steppers to idle
 	return nil
+}
+
+// TryShutdown triggers a firmware shutdown with a reason message
+// This is used by safety mechanisms like ADC range checking
+func TryShutdown(reason string) {
+	atomic.StoreUint32(&globalState.isShutdown, 1)
+	// Stop ADC sampling to prevent further activity after shutdown.
+	ShutdownAllAnalogIn()
+	// TODO: Send shutdown message to host with reason
+	// For now, just set the shutdown flag
+	_ = reason
+}
+
+// IsShutdown returns true if the firmware is in shutdown state
+func IsShutdown() bool {
+	return atomic.LoadUint32(&globalState.isShutdown) != 0
 }
 
 // ResetFirmwareState resets the firmware state for reconnection
@@ -213,6 +236,48 @@ var resetPending uint32 // atomic bool
 // SetResetHandler sets the platform-specific reset handler
 func SetResetHandler(handler func()) {
 	globalResetHandler = handler
+}
+
+// handleDebugRead reads a value from a memory address
+// This is used by Klipper's temperature_mcu to read calibration values
+// Format: debug_read order=%c addr=%u
+//
+//	order: 1 = read 16-bit (uint16), 2 = read 32-bit (uint32)
+//	addr: memory address to read from
+//
+// Response: debug_result val=%u
+func handleDebugRead(data *[]byte) error {
+	// Decode arguments: order (uint8), addr (uint32)
+	order, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	addr, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	// Read value from memory address based on order
+	var val uint32
+	switch order {
+	case 1: // 16-bit read
+		ptr := (*uint16)(unsafe.Pointer(uintptr(addr)))
+		val = uint32(*ptr)
+	case 2: // 32-bit read
+		ptr := (*uint32)(unsafe.Pointer(uintptr(addr)))
+		val = *ptr
+	default:
+		// Unknown order, return 0
+		val = 0
+	}
+
+	// Send debug_result response
+	SendResponse("debug_result", func(output protocol.OutputBuffer) {
+		protocol.EncodeVLQUint(output, val)
+	})
+
+	return nil
 }
 
 // handleReset triggers a hardware reset of the MCU

@@ -21,7 +21,7 @@ var (
 	// Debug counters
 	messagesReceived uint32
 	messagesSent     uint32
-	errors           uint32
+	msgerrors        uint32
 
 	// USB connection state tracking
 	lastUSBActivity          uint64 // Last time we successfully read/wrote USB data
@@ -33,7 +33,10 @@ var (
 func main() {
 	// CRITICAL: Disable watchdog on boot to clear any previous state
 	// This prevents issues with watchdog persisting across resets
-	machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+	err := machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+	if err != nil {
+		return
+	}
 
 	// Setup LED for status indication
 	debugLED = machine.LED
@@ -48,6 +51,19 @@ func main() {
 
 	// Initialize core commands
 	core.InitCoreCommands()
+
+	// Initialize ADC commands
+	core.InitADCCommands()
+
+	// Initialize and register ADC driver
+	// This must happen before BuildDictionary() so pin enumerations are registered
+	adcDriver := NewRPAdcDriver()
+	err = adcDriver.Init(core.ADCConfig{})
+	if err != nil {
+		// ADC init failed, but continue - firmware can still work without ADC
+		FlashLED(15, 50) // Flash many times to indicate ADC init failure
+	}
+	core.SetADCDriver(adcDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
@@ -83,8 +99,14 @@ func main() {
 	core.SetResetHandler(func() {
 		// Use watchdog reset instead of ARM SYSRESETREQ
 		// This is more reliable on RP2040 and handles USB re-enumeration better
-		machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
-		machine.Watchdog.Start()
+		err = machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
+		if err != nil {
+			return
+		}
+		err = machine.Watchdog.Start()
+		if err != nil {
+			return
+		}
 		// Wait for reset (should happen in ~1ms)
 		for {
 			time.Sleep(1 * time.Millisecond)
@@ -107,7 +129,7 @@ func main() {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					errors++
+					msgerrors++
 					FlashLED(10, 50)
 					// Clear buffers and continue
 					inputBuffer.Reset()
@@ -159,6 +181,9 @@ func main() {
 
 			// Process scheduled timers
 			core.ProcessTimers()
+
+			// Run analog-in task to send any pending analog_in_state reports.
+			core.AnalogInTask()
 		}()
 
 		// Yield to other goroutines
@@ -171,7 +196,7 @@ func usbReaderLoop() {
 	// Recover from panics to prevent firmware crash
 	defer func() {
 		if r := recover(); r != nil {
-			errors++
+			msgerrors++
 			FlashLED(10, 50)
 			// Restart the reader loop
 			time.Sleep(100 * time.Millisecond)
@@ -184,7 +209,7 @@ func usbReaderLoop() {
 		if available > 0 {
 			data, err := USBRead()
 			if err != nil {
-				errors++
+				msgerrors++
 				time.Sleep(1 * time.Millisecond)
 				continue
 			}
@@ -210,7 +235,7 @@ func usbReaderLoop() {
 			written := inputBuffer.Write([]byte{data})
 			if written == 0 {
 				// Buffer full - error condition
-				errors++
+				msgerrors++
 				FlashLED(5, 50)
 				time.Sleep(10 * time.Millisecond)
 			}

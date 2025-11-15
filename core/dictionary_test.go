@@ -27,26 +27,29 @@ func TestDictionary(t *testing.T) {
 
 	t.Log("Generated dictionary:\n" + output)
 
-	// Verify version present
-	if !strings.Contains(output, "#version") {
+	// Verify version present (JSON format)
+	if !strings.Contains(output, `"version":"gopper-0.1.0"`) {
 		t.Error("Dictionary missing version")
 	}
 
-	// Verify constants present
-	if !strings.Contains(output, "#TEST_CONST=42") {
+	// Verify constants present (JSON format)
+	if !strings.Contains(output, `"TEST_CONST":"42"`) {
 		t.Error("Dictionary missing TEST_CONST")
 	}
-	if !strings.Contains(output, "#TEST_STR=hello") {
+	if !strings.Contains(output, `"TEST_STR":"hello"`) {
 		t.Error("Dictionary missing TEST_STR")
 	}
 
-	// Verify enumeration present
-	if !strings.Contains(output, "ENUMERATIONS test_pins=PA0,PA1,PB0") {
+	// Verify enumeration present (JSON format)
+	if !strings.Contains(output, `"test_pins"`) {
 		t.Error("Dictionary missing test_pins enumeration")
 	}
+	if !strings.Contains(output, `"PA0":0`) && !strings.Contains(output, `"PA1":1`) {
+		t.Error("Dictionary missing test_pins values")
+	}
 
-	// Verify command present
-	if !strings.Contains(output, "test_cmd arg=%u") {
+	// Verify command present (JSON format)
+	if !strings.Contains(output, `"test_cmd arg=%u"`) {
 		t.Error("Dictionary missing test_cmd")
 	}
 }
@@ -114,18 +117,19 @@ func TestInitCoreCommands(t *testing.T) {
 		}
 	}
 
-	// Verify constants are registered
+	// Verify constants are registered (JSON format)
 	dict := GetGlobalDictionary().Generate()
 	dictStr := string(dict)
 
-	if !strings.Contains(dictStr, "#MCU=") {
-		t.Error("MCU constant not registered")
-	}
-	if !strings.Contains(dictStr, "#CLOCK_FREQ=") {
-		t.Error("CLOCK_FREQ constant not registered")
-	}
-	if !strings.Contains(dictStr, "#STATS_SUMSQ_BASE=") {
+	// Check for core constants (platform-specific constants like MCU and CLOCK_FREQ
+	// are registered in target packages, not in InitCoreCommands)
+	if !strings.Contains(dictStr, `"STATS_SUMSQ_BASE"`) {
 		t.Error("STATS_SUMSQ_BASE constant not registered")
+	}
+
+	// ADC_MAX is registered by InitADCCommands which is called in InitCoreCommands
+	if !strings.Contains(dictStr, `"ADC_MAX"`) {
+		t.Error("ADC_MAX constant not registered")
 	}
 
 	t.Logf("Dictionary:\n%s", dictStr)
