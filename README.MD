@@ -53,6 +53,8 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - ✅ Digital output support
   - ✅ Pin enumeration (gpio0-gpio29)
   - ✅ PWM capable outputs
+-  ✅ PWM driver infrastructure (RP2040)
+  - ✅ Hardware PWM support
 - ⏳ Stepper driver infrastructure
 - ⏳ Step pulse generation
 - ⏳ Queue-based motion planning
