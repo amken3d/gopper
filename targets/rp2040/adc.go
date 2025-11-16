@@ -67,17 +67,8 @@ func (d *RpAdcDriver) Init(cfg core.ADCConfig) error {
 	// Use TinyGo's global ADC init, if available.
 	machine.InitADC()
 
-	// Register RP2040 ADC pin enumeration
-	// Klipper substitutes pin names from enumerations when parsing config
-	// The array index corresponds to the ADC channel number
-	pinNames := []string{
-		"ADC0",            // Index 0: ADC channel 0 (GPIO26)
-		"ADC1",            // Index 1: ADC channel 1 (GPIO27)
-		"ADC2",            // Index 2: ADC channel 2 (GPIO28)
-		"ADC3",            // Index 3: ADC channel 3 (GPIO29)
-		"ADC_TEMPERATURE", // Index 4: Internal temperature sensor
-	}
-	core.RegisterEnumeration("pin", pinNames)
+	// Pin enumeration is registered centrally in main.go (registerRP2040Pins)
+	// to avoid conflicts between GPIO and ADC pin names
 
 	return nil
 }
@@ -86,6 +77,12 @@ func (d *RpAdcDriver) Init(cfg core.ADCConfig) error {
 func (d *RpAdcDriver) ConfigureChannel(ch core.ADCChannelID) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Translate pin enumeration index to ADC channel:
+	// Pin indices 30-34 (ADC0-ADC3, ADC_TEMPERATURE) → channels 0-4
+	if ch >= 30 && ch <= 34 {
+		ch = ch - 30
+	}
 
 	// Internal temperature sensor (channel 4) is handled via rawInternalTempXX
 	// and does not need a machine.ADC instance.
@@ -130,6 +127,12 @@ func (d *RpAdcDriver) ConfigureChannel(ch core.ADCChannelID) error {
 func (d *RpAdcDriver) ReadRaw(ch core.ADCChannelID) (core.ADCValue, error) {
 	//d.mu.Lock()
 	//defer d.mu.Unlock()
+
+	// Translate pin enumeration index to ADC channel:
+	// Pin indices 30-34 (ADC0-ADC3, ADC_TEMPERATURE) → channels 0-4
+	if ch >= 30 && ch <= 34 {
+		ch = ch - 30
+	}
 
 	// Internal temperature sensor: read raw 12-bit value
 	if ch == 4 {

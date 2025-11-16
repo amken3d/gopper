@@ -15,9 +15,6 @@ var (
 	outputBuffer *protocol.ScratchOutput
 	transport    *protocol.Transport
 
-	// LED for debugging
-	debugLED machine.Pin
-
 	// Debug counters
 	messagesReceived uint32
 	messagesSent     uint32
@@ -38,10 +35,6 @@ func main() {
 		return
 	}
 
-	// Setup LED for status indication
-	debugLED = machine.LED
-	debugLED.Configure(machine.PinConfig{Mode: machine.PinOutput})
-
 	// Initialize USB CDC immediately
 	InitUSB()
 
@@ -55,37 +48,38 @@ func main() {
 	// Initialize ADC commands
 	core.InitADCCommands()
 
-	// Initialize and register ADC driver
-	// This must happen before BuildDictionary() so pin enumerations are registered
+	// Initialize GPIO commands
+	core.InitGPIOCommands()
+
+	// Register combined pin enumeration for RP2040
+	// This must happen before BuildDictionary()
+	// Indices 0-29: GPIO pins (gpio0-gpio29)
+	// Indices 30-34: ADC channels (ADC0-ADC3, ADC_TEMPERATURE)
+	registerRP2040Pins()
+
+	// Initialize and register ADC driver (without registering pins - already done above)
 	adcDriver := NewRPAdcDriver()
-	err = adcDriver.Init(core.ADCConfig{})
-	if err != nil {
-		// ADC init failed, but continue - firmware can still work without ADC
-		FlashLED(15, 50) // Flash many times to indicate ADC init failure
-	}
 	core.SetADCDriver(adcDriver)
+
+	// Initialize and register GPIO driver (without registering pins - already done above)
+	gpioDriver := NewRPGPIODriver()
+	core.SetGPIODriver(gpioDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
 	core.GetGlobalDictionary().BuildDictionary()
-
-	// Flash LED to show we're creating buffers
-	FlashLED(2, 100)
-
 	// Create buffers
 	inputBuffer = protocol.NewFifoBuffer(256)
 	outputBuffer = protocol.NewScratchOutput()
 
-	// Create transport with command handler and reset callback
+	// Create transport with a command handler and reset callback
 	transport = protocol.NewTransport(outputBuffer, handleCommand)
 	transport.SetResetCallback(func() {
 		// Clear buffers on host reset
 		inputBuffer.Reset()
 		outputBuffer.Reset()
 
-		core.ResetFirmwareState() // Clear shutdown flag and config state
-		// Flash LED rapidly on reset
-		FlashLED(3, 50)
+		core.ResetFirmwareState() // Clear the shutdown flag and config state
 	})
 	// Set flush callback to immediately send ACKs to USB
 	// This is critical - serialqueue expects ACK before response
@@ -112,25 +106,16 @@ func main() {
 			time.Sleep(1 * time.Millisecond)
 		}
 	})
-
-	// Flash LED to show we're starting
-	FlashLED(5, 100)
-	debugLED.High()
-
 	// Start USB reader goroutine
 	go usbReaderLoop()
 
-	// Start LED heartbeat goroutine
-	go ledHeartbeat()
-
 	// Main loop - start immediately
 	for {
-		// Recover from panics in main loop to prevent firmware crash
+		// Recover from panics in the main loop to prevent a firmware crash
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					msgerrors++
-					FlashLED(10, 50)
 					// Clear buffers and continue
 					inputBuffer.Reset()
 					outputBuffer.Reset()
@@ -142,9 +127,6 @@ func main() {
 
 			// Process incoming messages
 			if inputBuffer.Available() > 0 {
-				// Flash LED to show activity
-				debugLED.Low()
-
 				// Create InputBuffer from FIFO data
 				data := inputBuffer.Data()
 				originalLen := len(data)
@@ -160,19 +142,13 @@ func main() {
 					inputBuffer.Pop(consumed)
 				}
 
-				debugLED.High()
 			}
 
 			// Write outgoing USB data
 			result := outputBuffer.Result()
 			if len(result) > 0 {
-				// Flash LED to show sending
-				debugLED.Low()
-
 				writeUSB()
 				messagesSent++
-
-				debugLED.High()
 			}
 
 			// Check for pending reset after all messages sent
@@ -182,7 +158,7 @@ func main() {
 			// Process scheduled timers
 			core.ProcessTimers()
 
-			// Run analog-in task to send any pending analog_in_state reports.
+			// Run an analog-in task to send any pending analog_in_state reports.
 			core.AnalogInTask()
 		}()
 
@@ -193,11 +169,10 @@ func main() {
 
 // usbReaderLoop runs in a goroutine to continuously read USB data
 func usbReaderLoop() {
-	// Recover from panics to prevent firmware crash
+	// Recover from panics to prevent a firmware crash
 	defer func() {
 		if r := recover(); r != nil {
 			msgerrors++
-			FlashLED(10, 50)
 			// Restart the reader loop
 			time.Sleep(100 * time.Millisecond)
 			go usbReaderLoop()
@@ -214,19 +189,17 @@ func usbReaderLoop() {
 				continue
 			}
 
-			// If we were disconnected and now receiving data, reset state for reconnection
+			// If we were disconnected and now receiving data, reset the state for reconnection
 			if usbWasDisconnected {
 				usbWasDisconnected = false
 				// Reset all state for fresh connection
 				inputBuffer.Reset()
 				outputBuffer.Reset()
 				transport.Reset()
-				core.ResetFirmwareState() // Clear shutdown flag and config state
+				core.ResetFirmwareState() // Clear the shutdown flag and config state
 				messagesReceived = 0
 				messagesSent = 0
 				consecutiveWriteFailures = 0
-				// Flash to indicate reconnection
-				FlashLED(4, 100)
 			}
 
 			// Update activity timestamp
@@ -236,49 +209,68 @@ func usbReaderLoop() {
 			if written == 0 {
 				// Buffer full - error condition
 				msgerrors++
-				FlashLED(5, 50)
 				time.Sleep(10 * time.Millisecond)
 			}
 		}
-		// Yield to avoid busy loop
+		// Yield to avoid a busy loop
 		time.Sleep(100 * time.Microsecond)
 	}
-}
-
-// ledHeartbeat shows the firmware is alive with slow blinks
-func ledHeartbeat() {
-	ticker := 0
-	for {
-		time.Sleep(1 * time.Second)
-		ticker++
-		// Every 5 seconds, do a quick double-blink
-		if ticker%5 == 0 {
-			debugLED.Low()
-			time.Sleep(50 * time.Millisecond)
-			debugLED.High()
-			time.Sleep(50 * time.Millisecond)
-			debugLED.Low()
-			time.Sleep(50 * time.Millisecond)
-			debugLED.High()
-		}
-	}
-}
-
-// FlashLED flashes the LED count times with the given delay
-func FlashLED(count int, delayMs int) {
-	state := debugLED.Get()
-	for i := 0; i < count; i++ {
-		debugLED.Low()
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
-		debugLED.High()
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
-	}
-	debugLED.Set(state)
 }
 
 // handleCommand dispatches received commands to the command registry
 func handleCommand(cmdID uint16, data *[]byte) error {
 	return core.DispatchCommand(cmdID, data)
+}
+
+// registerRP2040Pins registers all pin names for the RP2040
+// Combines GPIO pins (0-29) and ADC channels (30-34) into a single enumeration
+func registerRP2040Pins() {
+	// Total: 30 GPIO pins + 5 ADC channels = 35 total pins
+	pinNames := make([]string, 35)
+
+	// Indices 0-29: GPIO pins (gpio0-gpio29)
+	for i := 0; i < 30; i++ {
+		pinNames[i] = "gpio" + itoa(i)
+	}
+
+	// Indices 30-34: ADC channels
+	pinNames[30] = "ADC0"
+	pinNames[31] = "ADC1"
+	pinNames[32] = "ADC2"
+	pinNames[33] = "ADC3"
+	pinNames[34] = "ADC_TEMPERATURE"
+
+	// Register the combined enumeration
+	core.RegisterEnumeration("pin", pinNames)
+}
+
+// itoa converts int to string without importing strconv (for embedded)
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+
+	// Handle negative numbers
+	negative := i < 0
+	if negative {
+		i = -i
+	}
+
+	// Convert to string
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+
+	if negative {
+		pos--
+		buf[pos] = '-'
+	}
+
+	return string(buf[pos:])
 }
 
 // writeUSB writes available data from output buffer to USB
@@ -298,7 +290,7 @@ func writeUSB() {
 					consecutiveWriteFailures = 0
 					// Clear output buffer - don't keep trying to send stale data
 					outputBuffer.Reset()
-					// Also clear input buffer for clean state
+					// Also clear input buffer for a clean state
 					inputBuffer.Reset()
 				}
 				return
