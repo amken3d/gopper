@@ -45,6 +45,7 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 **Phase 3: Peripheral Modules **
 - ✅ ADC driver infrastructure
+- ✅ GPIO driver infrastructure
 - ⏳ Stepper driver infrastructure
 - ⏳ Step pulse generation
 - ⏳ Queue-based motion planning
