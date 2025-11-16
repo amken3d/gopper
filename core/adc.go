@@ -1,3 +1,5 @@
+//go:build tinygo
+
 // ADC (Analog to Digital Converter) support
 // Implements Klipper's analog_in protocol for reading analog sensors
 package core

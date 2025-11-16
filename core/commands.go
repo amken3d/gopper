@@ -1,3 +1,5 @@
+//go:build tinygo
+
 package core
 
 import (
@@ -13,7 +15,9 @@ type FirmwareState struct {
 	moveCount  uint16
 }
 
-var globalState = &FirmwareState{}
+var globalState = &FirmwareState{
+	moveCount: 16, // Command queue size - minimum for Klipper
+}
 
 // InitCoreCommands registers all core protocol commands
 // IMPORTANT: Command registration order matters!
@@ -162,6 +166,8 @@ func handleEmergencyStop(data *[]byte) error {
 	atomic.StoreUint32(&globalState.isShutdown, 1)
 	// Stop ADC sampling and other safety‑critical activity.
 	ShutdownAllAnalogIn()
+	// Return all GPIO pins to default state
+	ShutdownAllDigitalOut()
 	// TODO: Implement additional emergency stop behavior:
 	// - Stop all timers
 	// - Disable all outputs
@@ -175,6 +181,8 @@ func TryShutdown(reason string) {
 	atomic.StoreUint32(&globalState.isShutdown, 1)
 	// Stop ADC sampling to prevent further activity after shutdown.
 	ShutdownAllAnalogIn()
+	// Return all GPIO pins to default state
+	ShutdownAllDigitalOut()
 	// TODO: Send shutdown message to host with reason
 	// For now, just set the shutdown flag
 	_ = reason
@@ -190,7 +198,7 @@ func IsShutdown() bool {
 func ResetFirmwareState() {
 	atomic.StoreUint32(&globalState.configCRC, 0)
 	atomic.StoreUint32(&globalState.isShutdown, 0)
-	globalState.moveCount = 0
+	// moveCount is not reset - it's a firmware constant
 }
 
 // SendResponse sends a response message using the global transport
