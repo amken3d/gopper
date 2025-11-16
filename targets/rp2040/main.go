@@ -16,11 +16,9 @@ var (
 	transport    *protocol.Transport
 
 	// Debug counters
-	messagesReceived uint32
-	messagesSent     uint32
-	msgerrors        uint32
-
-	// USB connection state tracking
+	messagesReceived         uint32
+	messagesSent             uint32
+	msgerrors                uint32
 	usbWasDisconnected       bool
 	consecutiveWriteFailures uint32
 )
@@ -49,6 +47,9 @@ func main() {
 	// Initialize GPIO commands
 	core.InitGPIOCommands()
 
+	// Initialize PWM commands
+	core.InitPWMCommands()
+
 	// Register combined pin enumeration for RP2040
 	// This must happen before BuildDictionary()
 	// Indices 0-29: GPIO pins (gpio0-gpio29)
@@ -62,6 +63,10 @@ func main() {
 	// Initialize and register GPIO driver (without registering pins - already done above)
 	gpioDriver := NewRPGPIODriver()
 	core.SetGPIODriver(gpioDriver)
+
+	// Initialize and register PWM driver
+	pwmDriver := NewRP2040PWMDriver()
+	core.SetPWMDriver(pwmDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib

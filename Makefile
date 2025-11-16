@@ -1,6 +1,6 @@
 # Gopper Build System
 
-.PHONY: all clean test rp2040 stm32f4
+.PHONY: all clean test rp2040 stm32f4 test-pwm
 
 TINYGO = tinygo
 
@@ -14,6 +14,10 @@ rp2040:
 # Build for STM32F4
 stm32f4:
 	$(TINYGO) build -target=nucleo-f446re -size=short -o build/gopper-stm32f4.hex ./targets/stm32f4
+
+# Build PWM test for RP2040
+test-pwm:
+	$(TINYGO) build -target=pico -size=short -o build/pwm-test-rp2040.uf2 ./test/pwm
 
 # Run tests (protocol package only - core tests TODO)
 test:
