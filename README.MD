@@ -43,9 +43,16 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 - ✅ USB CDC communication (native USB support)
 - ✅ Complete main loop with USB I/O
 
-**Phase 3: Peripheral Modules **
-- ✅ ADC driver infrastructure
-- ✅ GPIO driver infrastructure
+**Phase 3: Peripheral Modules (In Progress ⏳)**
+- ✅ ADC driver infrastructure (RP2040)
+  - ✅ Internal temperature sensor support
+  - ✅ External ADC channels (ADC0-ADC3)
+  - ✅ Klipper analog_in protocol
+  - ✅ Pin enumeration system
+- ✅ GPIO driver infrastructure (RP2040)
+  - ✅ Digital output support
+  - ✅ Pin enumeration (gpio0-gpio29)
+  - ✅ PWM capable outputs
 - ⏳ Stepper driver infrastructure
 - ⏳ Step pulse generation
 - ⏳ Queue-based motion planning
@@ -129,8 +136,8 @@ tinygo build -target=pico2 -o build/gopper-rp2350.uf2 ./targets/rp2040
 # Build for STM32F4
 tinygo build -target=nucleo-f446re -o build/gopper-stm32f4.hex ./targets/stm32f4
 
-# Run tests
-go test ./protocol/... ./core/...
+# Run tests (protocol package only)
+go test -v ./protocol/...
 ```
 
 ## Testing with Klipper

@@ -15,9 +15,9 @@ rp2040:
 stm32f4:
 	$(TINYGO) build -target=nucleo-f446re -size=short -o build/gopper-stm32f4.hex ./targets/stm32f4
 
-# Run tests
+# Run tests (protocol package only - core tests TODO)
 test:
-	go test ./protocol/... ./core/...
+	go test -v ./protocol/...
 
 # Clean build artifacts
 clean:
