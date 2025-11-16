@@ -48,7 +48,9 @@ func InitPWMCommands() {
 
 	// Register PWM constant
 	// PWM_MAX: Maximum PWM value (matches Klipper's 255)
-	RegisterConstant("PWM_MAX", MustPWM().GetMaxValue())
+	// Note: We use 255 directly instead of calling MustPWM() because
+	// InitPWMCommands() is called before the PWM driver is set
+	RegisterConstant("PWM_MAX", 255)
 }
 
 // handleConfigPWMOut configures a pin for hardware PWM output

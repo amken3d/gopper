@@ -16,13 +16,9 @@ var (
 	transport    *protocol.Transport
 
 	// Debug counters
-	messagesReceived uint32
-	messagesSent     uint32
-	msgerrors        uint32
-
-	// USB connection state tracking
-	lastUSBActivity          uint64 // Last time we successfully read/wrote USB data
-	lastWriteSuccess         uint64 // Last time we successfully wrote USB data
+	messagesReceived         uint32
+	messagesSent             uint32
+	msgerrors                uint32
 	usbWasDisconnected       bool
 	consecutiveWriteFailures uint32
 )
@@ -209,9 +205,6 @@ func usbReaderLoop() {
 				consecutiveWriteFailures = 0
 			}
 
-			// Update activity timestamp
-			lastUSBActivity = core.GetUptime()
-
 			written := inputBuffer.Write([]byte{data})
 			if written == 0 {
 				// Buffer full - error condition
@@ -318,7 +311,6 @@ func writeUSB() {
 		// Successfully wrote everything
 		if written == len(result) {
 			consecutiveWriteFailures = 0 // Reset failure counter on success
-			lastWriteSuccess = core.GetUptime()
 			outputBuffer.Reset()
 		}
 	}
