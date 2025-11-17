@@ -168,6 +168,8 @@ func handleEmergencyStop(data *[]byte) error {
 	ShutdownAllAnalogIn()
 	// Return all GPIO pins to default state
 	ShutdownAllDigitalOut()
+	// Stop all I2C operations
+	ShutdownAllI2C()
 	// TODO: Implement additional emergency stop behavior:
 	// - Stop all timers
 	// - Disable all outputs
@@ -183,6 +185,8 @@ func TryShutdown(reason string) {
 	ShutdownAllAnalogIn()
 	// Return all GPIO pins to default state
 	ShutdownAllDigitalOut()
+	// Stop all I2C operations
+	ShutdownAllI2C()
 	// TODO: Send shutdown message to host with reason
 	// For now, just set the shutdown flag
 	_ = reason
