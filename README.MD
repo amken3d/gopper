@@ -55,6 +55,7 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - ✅ PWM capable outputs
 -  ✅ PWM driver infrastructure (RP2040)
   - ✅ Hardware PWM support
+- ✅ I2C driver infrastructure (RP2040)
 - ⏳ Stepper driver infrastructure
 - ⏳ Step pulse generation
 - ⏳ Queue-based motion planning
