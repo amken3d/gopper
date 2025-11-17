@@ -51,6 +51,12 @@ type AnalogIn struct {
 // Global registry of analog inputs
 var analogInputs = make(map[uint8]*AnalogIn)
 
+// GetADC retrieves an analog input by OID
+func GetADC(oid uint8) (*AnalogIn, bool) {
+	adc, exists := analogInputs[oid]
+	return adc, exists
+}
+
 // Wake flag for analog-in task
 var analogInWake bool
 

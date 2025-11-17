@@ -19,6 +19,12 @@ type I2CDevice struct {
 // Global registry of I2C devices
 var i2cDevices = make(map[uint8]*I2CDevice)
 
+// GetI2C retrieves an I2C device by OID
+func GetI2C(oid uint8) (*I2CDevice, bool) {
+	device, exists := i2cDevices[oid]
+	return device, exists
+}
+
 // InitI2CCommands registers I2C-related commands with the command registry
 func InitI2CCommands() {
 	// Command to allocate an I2C device object
