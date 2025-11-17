@@ -50,6 +50,8 @@ func main() {
 	// Initialize PWM commands
 	core.InitPWMCommands()
 
+	// Initialize SPI commands
+	core.InitSPICommands()
 	// Register combined pin enumeration for RP2040
 	// This must happen before BuildDictionary()
 	// Indices 0-29: GPIO pins (gpio0-gpio29)
@@ -67,6 +69,12 @@ func main() {
 	// Initialize and register PWM driver
 	pwmDriver := NewRP2040PWMDriver()
 	core.SetPWMDriver(pwmDriver)
+	// Initialize and register SPI drivers
+	spiDriver := NewRP2040SPIDriver()
+	core.SetSPIDriver(spiDriver)
+
+	softwareSPIDriver := NewRP2040SoftwareSPIDriver()
+	core.SetSoftwareSPIDriver(softwareSPIDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib

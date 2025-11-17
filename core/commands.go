@@ -170,6 +170,8 @@ func handleEmergencyStop(data *[]byte) error {
 	ShutdownAllDigitalOut()
 	// Stop all I2C operations
 	ShutdownAllI2C()
+	// Send shutdown messages to SPI devices
+	ShutdownSPI()
 	// TODO: Implement additional emergency stop behavior:
 	// - Stop all timers
 	// - Disable all outputs
