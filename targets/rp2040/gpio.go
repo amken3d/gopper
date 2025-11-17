@@ -13,6 +13,50 @@ type RPGPIODriver struct {
 	configuredPins map[core.GPIOPin]machine.Pin
 }
 
+func (d *RPGPIODriver) ConfigureInputPullUp(pin core.GPIOPin) error {
+	// Check if already configured
+	if _, exists := d.configuredPins[pin]; exists {
+		// Already configured, this is OK
+		return nil
+	}
+
+	// Map pin to machine.Pin
+	machinePin := d.pinNumberToMachinePin(pin)
+
+	// Configure as input with pull-up resistor
+	machinePin.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+
+	// Track configured pin
+	d.configuredPins[pin] = machinePin
+
+	return nil
+}
+
+func (d *RPGPIODriver) ConfigureInputPullDown(pin core.GPIOPin) error {
+	// Check if already configured
+	if _, exists := d.configuredPins[pin]; exists {
+		// Already configured, this is OK
+		return nil
+	}
+
+	// Map pin to machine.Pin
+	machinePin := d.pinNumberToMachinePin(pin)
+
+	// Configure as input with pull-down resistor
+	machinePin.Configure(machine.PinConfig{Mode: machine.PinInputPulldown})
+
+	// Track configured pin
+	d.configuredPins[pin] = machinePin
+
+	return nil
+}
+
+func (d *RPGPIODriver) ReadPin(pin core.GPIOPin) bool {
+	// ReadPin is a convenience wrapper around GetPin that returns just the bool value
+	value, _ := d.GetPin(pin)
+	return value
+}
+
 // NewRPGPIODriver creates a new RP2040 GPIO driver
 func NewRPGPIODriver() *RPGPIODriver {
 	return &RPGPIODriver{

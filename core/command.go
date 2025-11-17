@@ -152,3 +152,9 @@ func DispatchCommand(cmdID uint16, data *[]byte) error {
 func GetGlobalRegistry() *CommandRegistry {
 	return globalRegistry
 }
+
+// RegisterResponse registers a response message (MCU -> Host)
+// This is a convenience wrapper around RegisterCommand with a nil handler
+func RegisterResponse(name string, format string) uint16 {
+	return globalRegistry.Register(name, format, nil)
+}
