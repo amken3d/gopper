@@ -155,3 +155,14 @@ func (d *RP2040SPIDriver) GetBusInfo() map[core.SPIBusID]string {
 	}
 	return info
 }
+
+// GetMachineBus returns the underlying machine.SPI instance for a bus handle.
+// This allows direct use of TinyGo drivers that expect machine.SPI.
+func (d *RP2040SPIDriver) GetMachineBus(busHandle interface{}) (interface{}, error) {
+	inst, ok := busHandle.(*spiInstance)
+	if !ok {
+		return nil, errors.New("invalid SPI bus handle")
+	}
+
+	return inst.spi, nil
+}

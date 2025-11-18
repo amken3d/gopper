@@ -22,6 +22,11 @@ type I2CDriver interface {
 	// If regData is non-empty, it's transmitted before the read (restart in between).
 	// This matches Klipper's i2c_dev_read behavior.
 	Read(bus I2CBusID, addr I2CAddress, regData []byte, readLen uint8) ([]byte, error)
+
+	// GetMachineBus returns the underlying machine.I2C instance for a bus.
+	// This allows direct use of TinyGo drivers that expect machine.I2C.
+	// Returns nil if the bus is not configured or doesn't support machine.I2C.
+	GetMachineBus(bus I2CBusID) (interface{}, error)
 }
 
 // Global singleton used by core code.

@@ -132,3 +132,17 @@ func (d *RPI2CDriver) Read(bus core.I2CBusID, addr core.I2CAddress, regData []by
 
 	return readBuf, nil
 }
+
+// GetMachineBus returns the underlying machine.I2C instance for a bus.
+// This allows direct use of TinyGo drivers that expect machine.I2C.
+func (d *RPI2CDriver) GetMachineBus(bus core.I2CBusID) (interface{}, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	i2c, exists := d.buses[bus]
+	if !exists {
+		return nil, errors.New("I2C bus not configured")
+	}
+
+	return i2c, nil
+}

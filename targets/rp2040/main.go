@@ -53,8 +53,22 @@ func main() {
 	// Initialize SPI commands
 	core.InitSPICommands()
 
+	// Initialize I2C commands
+	core.InitI2CCommands()
+
+	// Initialize endstop commands
+	core.InitEndstopCommands()
+	core.InitAnalogEndstopCommands()
+	core.InitI2CEndstopCommands()
+
+	// Initialize trigger sync commands
+	core.InitTriggerSyncCommands()
+
 	// Initialize stepper commands and backend
 	InitSteppers()
+
+	// Initialize driver registry commands
+	core.InitDriverCommands()
 
 	// Register combined pin enumeration for RP2040
 	// This must happen before BuildDictionary()
