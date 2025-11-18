@@ -52,6 +52,10 @@ func main() {
 
 	// Initialize SPI commands
 	core.InitSPICommands()
+
+	// Initialize stepper commands and backend
+	InitSteppers()
+
 	// Register combined pin enumeration for RP2040
 	// This must happen before BuildDictionary()
 	// Indices 0-29: GPIO pins (gpio0-gpio29)
