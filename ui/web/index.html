@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gopper Klipper UI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Gopper Klipper UI</h1>
+        <p class="subtitle">WebSerial + TinyGo Wasm Interface</p>
+    </header>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <span class="label">Connection:</span>
+            <span id="connection-status" class="status-value disconnected">Disconnected</span>
+        </div>
+        <div class="status-item">
+            <span class="label">MCU:</span>
+            <span id="mcu-status" class="status-value">Unknown</span>
+        </div>
+        <div class="status-item">
+            <span class="label">Wasm:</span>
+            <span id="wasm-status" class="status-value">Loading...</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Serial Connection</h2>
+        <div class="button-group">
+            <button id="connect-btn" class="btn btn-primary">Connect to Gopper</button>
+            <button id="disconnect-btn" class="btn btn-secondary" disabled>Disconnect</button>
+        </div>
+        <div id="port-info" class="info-box" style="display: none;">
+            <strong>Port Info:</strong> <span id="port-details"></span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>MCU Status</h2>
+        <div id="mcu-info" class="info-panel">
+            <div class="info-row">
+                <span class="info-label">Firmware:</span>
+                <span id="info-firmware" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Uptime:</span>
+                <span id="info-uptime" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Clock:</span>
+                <span id="info-clock" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Configured:</span>
+                <span id="info-configured" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Config CRC:</span>
+                <span id="info-config-crc" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Shutdown:</span>
+                <span id="info-shutdown" class="info-value">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Move Queue:</span>
+                <span id="info-move-queue" class="info-value">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Commands</h2>
+        <div class="command-grid">
+            <button id="cmd-identify" class="btn btn-command">Identify</button>
+            <button id="cmd-uptime" class="btn btn-command">Get Uptime</button>
+            <button id="cmd-clock" class="btn btn-command">Get Clock</button>
+            <button id="cmd-config" class="btn btn-command">Get Config</button>
+        </div>
+
+        <div class="custom-command">
+            <h3>Custom Command</h3>
+            <label for="cmd-id">Command ID:</label>
+            <input type="number" id="cmd-id" placeholder="e.g., 1" min="0">
+
+            <label for="cmd-args">Arguments (hex):</label>
+            <input type="text" id="cmd-args" placeholder="e.g., 0a14">
+
+            <button id="send-custom" class="btn btn-command">Send Custom Command</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Protocol Testing</h2>
+        <div class="test-section">
+            <h3>VLQ Encoding Test</h3>
+            <label for="vlq-input">Value:</label>
+            <input type="number" id="vlq-input" value="42" />
+            <button id="vlq-encode" class="btn btn-test">Encode</button>
+            <div class="result-box">
+                <strong>Encoded (hex):</strong> <span id="vlq-result">-</span>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>VLQ Decoding Test</h3>
+            <label for="vlq-decode-input">Hex:</label>
+            <input type="text" id="vlq-decode-input" value="2a" />
+            <button id="vlq-decode" class="btn btn-test">Decode</button>
+            <div class="result-box">
+                <strong>Decoded:</strong> <span id="vlq-decode-result">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Console Log</h2>
+        <div id="console" class="console"></div>
+        <button id="clear-console" class="btn btn-secondary">Clear Console</button>
+    </div>
+</div>
+
+<script src="wasm_exec.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

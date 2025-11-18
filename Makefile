@@ -1,6 +1,6 @@
 # Gopper Build System
 
-.PHONY: all clean test rp2040 stm32f4 test-pwm
+.PHONY: all clean test rp2040 stm32f4 test-pwm wasm wasm-serve ui
 
 TINYGO = tinygo
 
@@ -30,3 +30,22 @@ clean:
 # Create build directory
 build:
 	mkdir -p build
+
+# Build WebAssembly UI
+wasm: build
+	@echo "Building Wasm module..."
+	$(TINYGO) build -o ui/web/gopper.wasm -target=wasm ./ui/wasm
+	@echo "Copying wasm_exec.js..."
+	cp $$($(TINYGO) env TINYGOROOT)/targets/wasm_exec.js ui/web/
+	@echo "Wasm build complete! Files in ui/web/"
+
+# Build UI (alias for wasm)
+ui: wasm
+
+# Serve the UI with a local web server
+wasm-serve: wasm
+	@echo "Starting web server at http://localhost:8080"
+	@echo "Press Ctrl+C to stop"
+	@which python3 > /dev/null && python3 -m http.server 8080 -d ui/web || \
+	 (which python > /dev/null && python -m SimpleHTTPServer 8080 -d ui/web) || \
+	 echo "Error: Python not found. Please install Python or use another web server."
