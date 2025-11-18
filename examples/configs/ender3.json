@@ -1,0 +1,93 @@
+{
+  "mode": "standalone",
+  "kinematics": "cartesian",
+  "axes": {
+    "x": {
+      "step_pin": "gpio0",
+      "dir_pin": "gpio1",
+      "enable_pin": "gpio8",
+      "steps_per_mm": 80.0,
+      "max_velocity": 300.0,
+      "max_accel": 3000.0,
+      "homing_vel": 50.0,
+      "min_position": 0.0,
+      "max_position": 220.0,
+      "invert_dir": false,
+      "invert_enable": false
+    },
+    "y": {
+      "step_pin": "gpio2",
+      "dir_pin": "gpio3",
+      "enable_pin": "gpio8",
+      "steps_per_mm": 80.0,
+      "max_velocity": 300.0,
+      "max_accel": 3000.0,
+      "homing_vel": 50.0,
+      "min_position": 0.0,
+      "max_position": 220.0,
+      "invert_dir": false,
+      "invert_enable": false
+    },
+    "z": {
+      "step_pin": "gpio4",
+      "dir_pin": "gpio5",
+      "enable_pin": "gpio8",
+      "steps_per_mm": 400.0,
+      "max_velocity": 10.0,
+      "max_accel": 100.0,
+      "homing_vel": 5.0,
+      "min_position": 0.0,
+      "max_position": 250.0,
+      "invert_dir": false,
+      "invert_enable": false
+    },
+    "e": {
+      "step_pin": "gpio6",
+      "dir_pin": "gpio7",
+      "enable_pin": "gpio8",
+      "steps_per_mm": 96.0,
+      "max_velocity": 50.0,
+      "max_accel": 5000.0,
+      "homing_vel": 0.0,
+      "min_position": -10000.0,
+      "max_position": 10000.0,
+      "invert_dir": false,
+      "invert_enable": false
+    }
+  },
+  "endstops": {
+    "x": {
+      "pin": "gpio20",
+      "invert": false
+    },
+    "y": {
+      "pin": "gpio21",
+      "invert": false
+    },
+    "z": {
+      "pin": "gpio22",
+      "invert": false
+    }
+  },
+  "heaters": {
+    "extruder": {
+      "sensor_pin": "ADC0",
+      "heater_pin": "gpio10",
+      "pid": [0.1, 0.5, 0.05],
+      "min_temp": 0.0,
+      "max_temp": 300.0,
+      "max_power": 1.0
+    },
+    "bed": {
+      "sensor_pin": "ADC1",
+      "heater_pin": "gpio11",
+      "pid": [0.2, 1.0, 0.1],
+      "min_temp": 0.0,
+      "max_temp": 150.0,
+      "max_power": 1.0
+    }
+  },
+  "default_velocity": 50.0,
+  "default_accel": 500.0,
+  "junction_deviation": 0.05
+}

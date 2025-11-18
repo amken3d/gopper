@@ -38,6 +38,40 @@ func main() {
 	InitClock()
 	core.TimerInit()
 
+	// Register combined pin enumeration for RP2040
+	// This must happen before any driver initialization
+	// Indices 0-29: GPIO pins (gpio0-gpio29)
+	// Indices 30-34: ADC channels (ADC0-ADC3, ADC_TEMPERATURE)
+	registerRP2040Pins()
+
+	// Initialize and register ADC driver
+	adcDriver := NewRPAdcDriver()
+	core.SetADCDriver(adcDriver)
+
+	// Initialize and register GPIO driver
+	gpioDriver := NewRPGPIODriver()
+	core.SetGPIODriver(gpioDriver)
+
+	// Initialize and register PWM driver
+	pwmDriver := NewRP2040PWMDriver()
+	core.SetPWMDriver(pwmDriver)
+
+	// Initialize and register SPI drivers
+	spiDriver := NewRP2040SPIDriver()
+	core.SetSPIDriver(spiDriver)
+
+	softwareSPIDriver := NewRP2040SoftwareSPIDriver()
+	core.SetSoftwareSPIDriver(softwareSPIDriver)
+
+	// Check which mode to run
+	mode := GetMode()
+	if mode.Standalone {
+		// Run in standalone mode (no Klipper host required)
+		RunStandaloneMode()
+		return
+	}
+
+	// Continue with Klipper protocol mode
 	// Initialize core commands
 	core.InitCoreCommands()
 
@@ -52,29 +86,6 @@ func main() {
 
 	// Initialize SPI commands
 	core.InitSPICommands()
-	// Register combined pin enumeration for RP2040
-	// This must happen before BuildDictionary()
-	// Indices 0-29: GPIO pins (gpio0-gpio29)
-	// Indices 30-34: ADC channels (ADC0-ADC3, ADC_TEMPERATURE)
-	registerRP2040Pins()
-
-	// Initialize and register ADC driver (without registering pins - already done above)
-	adcDriver := NewRPAdcDriver()
-	core.SetADCDriver(adcDriver)
-
-	// Initialize and register GPIO driver (without registering pins - already done above)
-	gpioDriver := NewRPGPIODriver()
-	core.SetGPIODriver(gpioDriver)
-
-	// Initialize and register PWM driver
-	pwmDriver := NewRP2040PWMDriver()
-	core.SetPWMDriver(pwmDriver)
-	// Initialize and register SPI drivers
-	spiDriver := NewRP2040SPIDriver()
-	core.SetSPIDriver(spiDriver)
-
-	softwareSPIDriver := NewRP2040SoftwareSPIDriver()
-	core.SetSoftwareSPIDriver(softwareSPIDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
