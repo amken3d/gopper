@@ -2,7 +2,6 @@ module gopper
 
 go 1.25
 
-require (
-	github.com/4kills/go-zlib v1.2.0 // indirect
-	github.com/klauspost/compress v1.18.1 // indirect
-)
+require tinygo.org/x/drivers v0.33.0
+
+require github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect

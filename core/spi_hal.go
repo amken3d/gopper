@@ -34,6 +34,11 @@ type SPIDriver interface {
 	// GetBusInfo returns information about available SPI buses
 	// Returns a map of bus IDs to human-readable descriptions
 	GetBusInfo() map[SPIBusID]string
+
+	// GetMachineBus returns the underlying machine.SPI instance for a bus handle.
+	// This allows direct use of TinyGo drivers that expect machine.SPI.
+	// Returns nil if the handle is invalid or doesn't support machine.SPI.
+	GetMachineBus(busHandle interface{}) (interface{}, error)
 }
 
 // SoftwareSPIDriver is the interface for software (bit-banged) SPI
