@@ -53,6 +53,9 @@ func main() {
 	// Initialize SPI commands
 	core.InitSPICommands()
 
+	// Initialize trigger sync commands (needed for stepper homing)
+	core.InitTriggerSyncCommands()
+
 	// Initialize I2C commands
 	core.InitI2CCommands()
 

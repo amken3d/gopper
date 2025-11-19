@@ -119,7 +119,7 @@ homing_speed: 50
 ```bash
 ~/klippy-env/bin/python ~/klipper/klippy/console.py -v /dev/ttyACM0
 
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 min_stop_interval=100
+>>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=0
 >>> set_next_step_dir oid=0 dir=0
 >>> queue_step oid=0 interval=12000 count=100 add=0
 ```
@@ -272,9 +272,9 @@ interval = 12000 ticks (1ms @ 12MHz)
 
 #### Implemented Commands
 
-1. **config_stepper** `oid=%c step_pin=%c dir_pin=%c invert_step=%c min_stop_interval=%u`
+1. **config_stepper** `oid=%c step_pin=%c dir_pin=%c invert_step=%c step_pulse_ticks=%u`
     - Initialize stepper object
-    - Configure pins and timing limits
+    - Configure pins and pulse timing
 
 2. **queue_step** `oid=%c interval=%u count=%hu add=%hi`
     - Add move to queue
@@ -298,6 +298,11 @@ interval = 12000 ticks (1ms @ 12MHz)
     - Query stepper status and debug information
     - Shows position, active state, queue count, and backend name
     - Primarily for debugging and diagnostics
+
+7. **stepper_stop_on_trigger** `oid=%c trsync_oid=%c`
+    - Register stepper to stop when trigger sync fires
+    - Used during homing to stop on endstop trigger
+    - Clears move queue immediately when triggered
 
 ### Backend Selection
 
@@ -445,7 +450,7 @@ homing_speed: 5
 
 ```python
 # Configure a stepper (OID=0, step_pin=2, dir_pin=3)
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 min_stop_interval=100
+>>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=0
 
 # Should return ACK with no errors
 ```
@@ -503,10 +508,10 @@ homing_speed: 5
 
 ```python
 # Configure 4 steppers
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 min_stop_interval=100
->>> config_stepper oid=1 step_pin=4 dir_pin=5 invert_step=0 min_stop_interval=100
->>> config_stepper oid=2 step_pin=6 dir_pin=7 invert_step=0 min_stop_interval=100
->>> config_stepper oid=3 step_pin=8 dir_pin=9 invert_step=0 min_stop_interval=100
+>>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=0
+>>> config_stepper oid=1 step_pin=4 dir_pin=5 invert_step=0 step_pulse_ticks=0
+>>> config_stepper oid=2 step_pin=6 dir_pin=7 invert_step=0 step_pulse_ticks=0
+>>> config_stepper oid=3 step_pin=8 dir_pin=9 invert_step=0 step_pulse_ticks=0
 
 # Synchronize all steppers
 >>> reset_step_clock oid=0 clock=1000000

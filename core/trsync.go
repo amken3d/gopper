@@ -35,6 +35,8 @@ var triggerSyncs = make(map[uint8]*TriggerSync)
 
 // InitTriggerSyncCommands registers trsync-related commands
 func InitTriggerSyncCommands() {
+	// Command to configure a trigger sync object
+	RegisterCommand("config_trsync", "oid=%c", handleConfigTriggerSync)
 	// Command to set timeout for trigger synchronization
 	RegisterCommand("trsync_start", "oid=%c report_clock=%u report_ticks=%u expire_reason=%c", handleTriggerSyncStart)
 
@@ -46,6 +48,23 @@ func InitTriggerSyncCommands() {
 
 	// Response: trsync report sent to host
 	RegisterResponse("trsync_state", "oid=%c can_trigger=%c trigger_reason=%c clock=%u")
+}
+
+// handleConfigTriggerSync allocates and initializes a trsync object
+// Format: config_trsync oid=%c
+
+func handleConfigTriggerSync(data *[]byte) error {
+	oid, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+	// Create or reset trigger sync object
+	ts := &TriggerSync{
+		OID:   uint8(oid),
+		Flags: 0,
+	}
+	triggerSyncs[uint8(oid)] = ts
+	return nil
 }
 
 // handleTriggerSyncStart starts a trigger synchronization session

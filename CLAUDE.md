@@ -19,12 +19,17 @@ Gopper is a Klipper firmware implementation written in TinyGo for modern microco
 - ✅ VLQ encoding/decoding
 - ✅ Basic command handlers (identify, get_uptime, get_clock, get_config)
 - ✅ ADC (Analog-to-Digital Converter) support
-
+- ✅ Stepper motor control (config_stepper, queue_step, set_next_step_dir, reset_step_clock)
+- ✅ Stepper position reporting (stepper_get_position, stepper_position response)
+- ✅ Trigger synchronization (trsync) for coordinated homing
+- ✅ Endstop support for homing operations
+- ✅ GPIO digital input/output
+- ✅ PWM support
 
 ### Known Issues
-- ⚠️ No stepper motor control implemented yet
+- ⚠️ Stepper PIO backend not fully tested (GPIO fallback works)
 - ⚠️ Timer system not fully tested under load
-- ⚠️ No endstop/ADC/PWM support yet
+- ⚠️ Actual motor movement not yet verified (protocol communication confirmed working)
 
 ### Recent Bug Fixes (2025-11-12)
 - **Fixed circular buffer wrap-around bug** causing timeouts after ~6 seconds of communication

@@ -54,13 +54,21 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - ✅ Digital input support (pull-up/pull-down)
   - ✅ Pin enumeration (gpio0-gpio29)
   - ✅ PWM capable outputs
--  ✅ PWM driver infrastructure (RP2040)
+- ✅ PWM driver infrastructure (RP2040)
   - ✅ Hardware PWM support
 - ✅ I2C driver infrastructure (RP2040)
-- ⏳ Stepper driver infrastructure
-- ⏳ Step pulse generation
-- ⏳ Queue-based motion planning
-- ⏳ Endstop handling
+- ✅ Stepper driver infrastructure
+  - ✅ config_stepper, queue_step, set_next_step_dir, reset_step_clock
+  - ✅ stepper_get_position and stepper_position response
+  - ✅ stepper_stop_on_trigger for homing
+  - ✅ PIO-accelerated backend (500kHz step rate)
+  - ✅ GPIO fallback backend (200kHz step rate)
+- ✅ Endstop handling
+  - ✅ Trigger synchronization (trsync)
+  - ✅ Digital and analog endstop support
+  - ✅ Coordinated multi-axis homing
+- ⏳ Heater/temperature control
+- ⏳ TMC driver UART/SPI configuration
 
 ## Supported Hardware (Planned)
 
