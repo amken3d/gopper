@@ -1,6 +1,6 @@
 //go:build rp2040
 
-package main
+package pio
 
 import (
 	"device/arm"

@@ -19,6 +19,46 @@ stm32f4:
 test-pwm:
 	$(TINYGO) build -target=pico -size=short -o build/pwm-test-rp2040.uf2 ./test/pwm
 
+# Build PIO stepper test for RP2040
+test-stepper:
+	$(TINYGO) build -target=pico -size=short -o build/stepper-test-rp2040.uf2 ./test/stepper
+
+# Build simple PIO toggle test
+test-pio-simple:
+	$(TINYGO) build -target=pico -size=short -o build/pio-simple-test.uf2 ./test/pio_simple
+
+# Build PIO stepper test with FIFO
+test-pio-stepper:
+	$(TINYGO) build -target=pico -size=short -o build/pio-stepper-test.uf2 ./test/pio_stepper
+
+# Test the actual PIOStepperBackend implementation
+test-pio-backend:
+	$(TINYGO) build -target=pico -size=short -o build/pio-backend-test.uf2 ./test/pio_backend
+
+# Test minimal PIO backend (PULL + toggle only, no OUT)
+test-pio-minimal:
+	$(TINYGO) build -target=pico -size=short -o build/pio-minimal-test.uf2 ./test/pio_minimal
+
+# Test OUT instruction with toggle
+test-pio-out:
+	$(TINYGO) build -target=pico -size=short -o build/pio-out-test.uf2 ./test/pio_out_test
+
+# Test simple PIO stepper (RP2040/Pico)
+test-simple-stepper:
+	$(TINYGO) build -target=pico -size=short -o build/simple-stepper-test.uf2 ./test/pio_simple_stepper
+
+# Test simple PIO stepper (RP2350B)
+test-simple-stepper-rp2350b:
+	$(TINYGO) build -target=rp2350b -size=short -o build/simple-stepper-rp2350b.uf2 ./test/pio_simple_stepper
+
+# Test 7-axis stepper (RP2040/Pico for testing)
+test-7axis:
+	$(TINYGO) build -target=pico -size=short -o build/7axis-test.uf2 ./test/pio_7axis
+
+# Test 7-axis stepper (RP2350 - uses metro-rp2350 target)
+test-7axis-rp2350:
+	$(TINYGO) build -target=metro-rp2350 -size=short -o build/7axis-rp2350.uf2 ./test/pio_7axis
+
 # Run tests (protocol package only - core tests TODO)
 test:
 	go test -v ./protocol/...

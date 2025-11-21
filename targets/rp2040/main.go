@@ -5,6 +5,7 @@ package main
 import (
 	"gopper/core"
 	"gopper/protocol"
+	piostepper "gopper/targets/pio"
 	"machine"
 	"time"
 )
@@ -68,7 +69,7 @@ func main() {
 	core.InitTriggerSyncCommands()
 
 	// Initialize stepper commands and backend
-	InitSteppers()
+	piostepper.InitSteppers()
 
 	// Initialize driver registry commands
 	core.InitDriverCommands()

@@ -843,7 +843,7 @@ mcu: freq=125000000 adj=125000625
 ### Source Code
 - [Klipper stepper.c](https://github.com/Klipper3d/klipper/blob/master/src/stepper.c)
 - [GRBLHAL RP2040](https://github.com/grblHAL/RP2040)
-- [Gopper stepper.pio](../targets/rp2040/stepper.pio) - PIO assembly programs
+- [Gopper stepper.pio](../targets/test/stepper.pio) - PIO assembly programs
 
 ### Compatibility
 
