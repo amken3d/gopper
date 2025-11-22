@@ -59,6 +59,18 @@ test-7axis:
 test-7axis-rp2350:
 	$(TINYGO) build -target=metro-rp2350 -size=short -o build/7axis-rp2350.uf2 ./test/pio_7axis
 
+# Test PIO stepper V2 (with AssemblerV1 and side-set)
+test-pio-v2:
+	$(TINYGO) build -target=pico -size=short -o build/pio-stepper-v2.uf2 ./test/pio_stepper_v2
+
+# Test PIO stepper V2 for RP2350
+test-pio-v2-rp2350:
+	$(TINYGO) build -target=metro-rp2350 -size=short -o build/pio-stepper-v2-rp2350.uf2 ./test/pio_stepper_v2
+
+# Test stepper backends (PIO vs GPIO comparison)
+test-stepper-backends:
+	$(TINYGO) build -target=pico -size=short -o build/stepper-backends-test.uf2 ./test/stepper_backends
+
 # Run tests (protocol package only - core tests TODO)
 test:
 	go test -v ./protocol/...

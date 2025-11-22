@@ -1,4 +1,4 @@
-//go:build rp2040
+//go:build rp2040 || rp2350
 
 package pio
 
@@ -68,7 +68,7 @@ func createPIOBackend() core.StepperBackend {
 		return nil
 	}
 
-	return NewPIOStepperBackend(pioNum, smNum)
+	return NewStepperPIO(pioNum, smNum)
 }
 
 // allocatePIO allocates a PIO state machine

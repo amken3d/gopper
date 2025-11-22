@@ -1,194 +1,212 @@
-//go:build rp2040
+//go:build rp2040 || rp2350
 
 package pio
-
-// PIO Stepper Backend using tinygo-org/pio package
-// This provides hardware-accelerated, jitter-free step pulse generation
 
 import (
 	"gopper/core"
 	"machine"
 
-	rp2pio "github.com/tinygo-org/pio/rp2-pio"
+	piolib "github.com/tinygo-org/pio/rp2-pio"
 )
 
-// PIO program for step pulse generation
-// Command word format:
-//
-//	Bits 0-15:  pulse count (number of steps to generate)
-//	Bits 16-23: delay cycles (inter-pulse spacing)
-//	Bit 31:     direction (0=forward, 1=reverse)
-//
-// Program flow:
-//  1. Pull 32-bit command from FIFO
-//  2. Extract pulse count into X register
-//  3. Extract delay cycles into Y register
-//  4. Set direction pin
-//  5. Generate X pulses with Y cycle delays between them
-//
-// buildStepperProgram creates the stepper PIO program using AssemblerV0
-func buildStepperProgram() []uint16 {
-	asm := rp2pio.AssemblerV0{SidesetBits: 0}
-	return []uint16{
-		// .wrap_target
-		asm.Pull(false, true).Encode(),          // 0: pull block
-		asm.Out(rp2pio.OutDestX, 16).Encode(),   // 1: out x, 16 (pulse count)
-		asm.Out(rp2pio.OutDestY, 8).Encode(),    // 2: out y, 8 (delay cycles)
-		asm.Out(rp2pio.OutDestPins, 1).Encode(), // 3: out pins, 1 (direction)
-		// step_loop:
-		asm.Set(rp2pio.SetDestPins, 1).Delay(7).Encode(), // 4: set pins, 1 [7]
-		asm.Set(rp2pio.SetDestPins, 0).Encode(),          // 5: set pins, 0
-		// delay_loop:
-		asm.Jmp(6, rp2pio.JmpYNZeroDec).Encode(), // 6: jmp y--, 6
-		asm.Jmp(4, rp2pio.JmpXNZeroDec).Encode(), // 7: jmp x--, 4
-		// .wrap
-	}
-}
+// PIO program storage - loaded once per PIO block
+var (
+	pio0ProgramOffset uint8 = 0xFF // 0xFF = not loaded
+	pio1ProgramOffset uint8 = 0xFF
+	stepperProgram    []uint16
+)
 
-const stepperPIOOrigin = 0 // Load at offset 0 for correct jump addresses
-
-// PIOStepperBackend implements stepper control using TinyGo's pio package
-type PIOStepperBackend struct {
-	pio       *rp2pio.PIO
-	sm        rp2pio.StateMachine
+// StepperPIO handles PIO-based stepper pulse generation
+// Implements core.StepperBackend interface
+type StepperPIO struct {
+	pio       *piolib.PIO
+	sm        piolib.StateMachine
+	offset    uint8
 	stepPin   machine.Pin
 	dirPin    machine.Pin
 	direction bool
-	offset    uint8
 	pioNum    uint8
 	smNum     uint8
 }
 
-// NewPIOStepperBackend creates a new PIO-based stepper backend
+// NewStepperPIO creates a new PIO stepper controller
 // pioNum: 0 for PIO0, 1 for PIO1
 // smNum: 0-3 for state machine number
-func NewPIOStepperBackend(pioNum, smNum uint8) *PIOStepperBackend {
-	var pioHW *rp2pio.PIO
+func NewStepperPIO(pioNum, smNum uint8) *StepperPIO {
+	var p *piolib.PIO
 	if pioNum == 0 {
-		pioHW = rp2pio.PIO0
+		p = piolib.PIO0
 	} else {
-		pioHW = rp2pio.PIO1
+		p = piolib.PIO1
 	}
 
-	return &PIOStepperBackend{
-		pio:    pioHW,
-		sm:     pioHW.StateMachine(smNum),
+	return &StepperPIO{
+		pio:    p,
+		sm:     p.StateMachine(smNum),
 		pioNum: pioNum,
 		smNum:  smNum,
 	}
 }
 
-// Init initializes the PIO stepper backend
-func (b *PIOStepperBackend) Init(stepPin, dirPin uint8, invertStep, invertDir bool) error {
-	b.stepPin = machine.Pin(stepPin)
-	b.dirPin = machine.Pin(dirPin)
+// buildStepperProgram creates the PIO stepper program using AssemblerV0
+// Simple version: direction controlled via GPIO, PIO only generates step pulses
+// Based on known-working minimal test pattern
+func buildStepperProgram() []uint16 {
+	asm := piolib.AssemblerV0{SidesetBits: 0}
 
-	// CRITICAL: Claim the state machine first!
-	b.sm.TryClaim()
-
-	// Build and load PIO program using AssemblerV0
-	program := buildStepperProgram()
-	offset, err := b.pio.AddProgram(program, stepperPIOOrigin)
-	if err != nil {
-		return err
+	return []uint16{
+		// Wait for step count from TX FIFO
+		asm.Pull(false, true).Encode(),        // 0: pull block
+		asm.Out(piolib.OutDestX, 32).Encode(), // 1: X = step count
+		// Step loop
+		asm.Set(piolib.SetDestPins, 1).Delay(7).Encode(), // 2: step HIGH [7]
+		asm.Set(piolib.SetDestPins, 0).Delay(7).Encode(), // 3: step LOW [7]
+		asm.Jmp(2, piolib.JmpXNZeroDec).Encode(),         // 4: jmp x--, 2
+		// Wraps back to 0 (pull) when X reaches 0
 	}
-	b.offset = offset
+}
 
-	// Configure pins for PIO
-	b.stepPin.Configure(machine.PinConfig{Mode: b.pio.PinMode()})
-	b.dirPin.Configure(machine.PinConfig{Mode: b.pio.PinMode()})
+// Init initializes the stepper hardware
+func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) error {
+	s.stepPin = machine.Pin(stepPin)
+	s.dirPin = machine.Pin(dirPin)
 
-	// Build state machine configuration
-	cfg := rp2pio.DefaultStateMachineConfig()
+	// Claim state machine
+	s.sm.TryClaim()
 
-	// Configure SET pins (step pin) - used for pulse generation
-	cfg.SetSetPins(b.stepPin, 1)
+	// Build program if not already built
+	if stepperProgram == nil {
+		stepperProgram = buildStepperProgram()
+	}
 
-	// Configure OUT pins (direction pin) - used for direction control
-	cfg.SetOutPins(b.dirPin, 1)
+	// Load program once per PIO block
+	var offset uint8
+	var err error
 
-	// Configure shift control: shift right, autopull DISABLED (we use explicit PULL), 32-bit threshold
+	if s.pioNum == 0 {
+		if pio0ProgramOffset == 0xFF {
+			offset, err = s.pio.AddProgram(stepperProgram, 0)
+			if err != nil {
+				return err
+			}
+			pio0ProgramOffset = offset
+		}
+		offset = pio0ProgramOffset
+	} else {
+		if pio1ProgramOffset == 0xFF {
+			offset, err = s.pio.AddProgram(stepperProgram, 0)
+			if err != nil {
+				return err
+			}
+			pio1ProgramOffset = offset
+		}
+		offset = pio1ProgramOffset
+	}
+	s.offset = offset
+
+	// Configure state machine
+	cfg := piolib.DefaultStateMachineConfig()
+
+	// SET pins = step pin (for pulse generation)
+	cfg.SetSetPins(s.stepPin, 1)
+
+	// Shift control: shift right, no autopull, 32-bit threshold
 	cfg.SetOutShift(true, false, 32)
 
-	// Configure wrap points (program is 8 instructions: 0-7)
-	cfg.SetWrap(offset+uint8(len(program))-1, offset)
+	// Wrap points (5 instruction program: 0-4)
+	cfg.SetWrap(offset+4, offset)
 
-	// Full speed clock (125MHz) - PIO program handles timing
+	// Clock divider - slow for testing (125kHz PIO clock)
 	cfg.SetClkDivIntFrac(1000, 0)
 
-	// Initialize state machine FIRST
-	b.sm.Init(offset, cfg)
+	// Configure step pin for PIO control
+	s.stepPin.Configure(machine.PinConfig{Mode: s.pio.PinMode()})
 
-	// THEN set pin directions (must be after Init!)
-	b.sm.SetPindirsConsecutive(b.stepPin, 1, true) // step = output
-	b.sm.SetPindirsConsecutive(b.dirPin, 1, true)  // dir = output
+	// Configure direction pin as regular GPIO output (not PIO)
+	s.dirPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	s.dirPin.Low()
 
-	// Set initial pin states
-	b.sm.SetPinsConsecutive(b.stepPin, 1, false) // step = low
-	b.sm.SetPinsConsecutive(b.dirPin, 1, false)  // dir = low
+	// Set step pin direction BEFORE init (critical!)
+	s.sm.SetPindirsConsecutive(s.stepPin, 1, true)
 
-	// Enable state machine
-	b.sm.SetEnabled(true)
+	// Initialize and enable state machine
+	s.sm.Init(offset, cfg)
+	s.sm.SetEnabled(true)
 
 	return nil
 }
 
 // Step generates a single step pulse
-func (b *PIOStepperBackend) Step() {
-	// Build command word with current direction
-	// 1 step, minimal delay (1 cycle), current direction
-	cmd := uint32(1) | (1 << 16) // count=1, delay=1
-	if b.direction {
-		cmd |= (1 << 31) // set direction bit
-	}
-
-	// Wait for FIFO space and write
-	for b.sm.IsTxFIFOFull() {
-		// Busy wait - should be very brief
-	}
-	b.sm.TxPut(cmd)
+// Implements core.StepperBackend interface
+func (s *StepperPIO) Step() {
+	// Queue single step with current direction
+	s.QueueSteps(1)
 }
 
-// QueueSteps queues multiple steps to PIO
-func (b *PIOStepperBackend) QueueSteps(count uint16, delayCycles uint8, direction bool) {
-	// Build 32-bit command word
-	cmd := uint32(count) | (uint32(delayCycles) << 16)
-	if direction {
-		cmd |= (1 << 31)
+// SetDirection sets the direction for the next step(s)
+// Implements core.StepperBackend interface
+// Direction is controlled via GPIO (not PIO)
+func (s *StepperPIO) SetDirection(dir bool) {
+	s.direction = dir
+	if dir {
+		s.dirPin.High()
+	} else {
+		s.dirPin.Low()
 	}
-
-	// Wait for FIFO space and write
-	for b.sm.IsTxFIFOFull() {
-		// Busy wait
-	}
-	b.sm.TxPut(cmd)
 }
 
-// SetDirection sets the direction for the next move
-func (b *PIOStepperBackend) SetDirection(dir bool) {
-	b.direction = dir
-}
-
-// Stop halts the PIO state machine
-func (b *PIOStepperBackend) Stop() {
-	b.sm.SetEnabled(false)
-	b.sm.ClearFIFOs()
-	b.sm.Restart()
-	b.sm.SetEnabled(true)
+// Stop immediately halts the stepper
+// Implements core.StepperBackend interface
+func (s *StepperPIO) Stop() {
+	s.sm.SetEnabled(false)
+	s.sm.ClearFIFOs()
+	s.sm.Restart()
+	s.sm.SetEnabled(true)
 }
 
 // GetName returns the backend name
-func (b *PIOStepperBackend) GetName() string {
+// Implements core.StepperBackend interface
+func (s *StepperPIO) GetName() string {
 	return "PIO"
 }
 
 // GetInfo returns backend performance information
-func (b *PIOStepperBackend) GetInfo() core.StepperBackendInfo {
+func (s *StepperPIO) GetInfo() core.StepperBackendInfo {
 	return core.StepperBackendInfo{
-		Name:          b.GetName(),
+		Name:          s.GetName(),
 		MaxStepRate:   500000, // 500 kHz
-		MinPulseNs:    64,     // ~64ns pulse width (8 cycles @ 125MHz)
+		MinPulseNs:    64,     // ~64ns @ 125MHz with 8 cycle delay
 		TypicalJitter: 10,     // <10ns jitter (hardware-timed)
 		CPUOverhead:   1,      // ~1% CPU (only FIFO management)
 	}
+}
+
+// QueueSteps queues multiple steps to PIO
+// This is the efficient way to send steps - queue many at once
+// Direction must be set via SetDirection() before calling this
+func (s *StepperPIO) QueueSteps(count uint16) {
+	// Wait for FIFO space and send count
+	for s.sm.IsTxFIFOFull() {
+	}
+	s.sm.TxPut(uint32(count))
+}
+
+// SendSteps queues steps with explicit direction
+// Convenience method for batch stepping
+func (s *StepperPIO) SendSteps(steps uint16, direction bool) {
+	s.SetDirection(direction)
+	s.QueueSteps(steps)
+}
+
+// IsBusy returns true if the stepper has pending steps
+func (s *StepperPIO) IsBusy() bool {
+	return !s.sm.IsTxFIFOEmpty()
+}
+
+// SetClockDiv sets the clock divider to control step rate
+// Higher values = slower steps
+// With 125MHz CPU: divider 125 = 1MHz = 1us per PIO cycle
+// Each step takes ~18 PIO cycles, so 1MHz / 18 ≈ 55kHz max step rate
+func (s *StepperPIO) SetClockDiv(whole uint16, frac uint8) {
+	s.sm.SetClkDiv(whole, frac)
 }
