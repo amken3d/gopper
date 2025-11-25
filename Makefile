@@ -1,8 +1,9 @@
 # Gopper Build System
 
-.PHONY: all clean test rp2040 stm32f4 test-pwm wasm wasm-serve ui
+.PHONY: all clean test rp2040 stm32f4 test-pwm wasm wasm-serve ui host host-test
 
 TINYGO = tinygo
+GO = go
 
 # Default target
 all: rp2040
@@ -101,3 +102,19 @@ wasm-serve: wasm
 	@which python3 > /dev/null && python3 -m http.server 8080 -d ui/web || \
 	 (which python > /dev/null && python -m SimpleHTTPServer 8080 -d ui/web) || \
 	 echo "Error: Python not found. Please install Python or use another web server."
+
+# Build host software (Standard Go)
+host: build
+	@echo "Building Gopper host..."
+	$(GO) build -o build/gopper-host ./host/cmd/gopper-host
+	@echo "Host build complete! Binary: build/gopper-host"
+
+# Run host with default device
+host-run: host
+	@echo "Running Gopper host..."
+	./build/gopper-host -device /dev/ttyACM0 -verbose
+
+# Test host (requires MCU connected)
+host-test: host
+	@echo "Testing host connection..."
+	./build/gopper-host -device /dev/ttyACM0
