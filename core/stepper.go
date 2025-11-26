@@ -272,3 +272,50 @@ func (s *Stepper) GetQueueCount() uint8 {
 	}
 	return StepperQueueSize - s.QueueHead + s.QueueTail
 }
+
+// MoveToPosition performs a position-based move
+// This enables hardware ramp generation for smart drivers like TMC5240
+// Parameters:
+//   - targetPos: Absolute target position in steps
+//   - startVel: Starting velocity (timer ticks between steps)
+//   - endVel: Ending velocity (timer ticks between steps)
+//   - accel: Acceleration value (change in interval per step)
+func (s *Stepper) MoveToPosition(targetPos int64, startVel, endVel, accel uint32) error {
+	// Check if backend supports position-based moves
+	if pmover, ok := s.Backend.(PositionMover); ok {
+		return pmover.MoveToPosition(targetPos, startVel, endVel, accel)
+	}
+
+	// Fallback: convert to step-based move for traditional drivers
+	stepCount := int32(targetPos - s.Position)
+	if stepCount == 0 {
+		return nil // Already at target position
+	}
+
+	// Determine direction
+	var direction uint8
+	if stepCount < 0 {
+		direction = 1
+		stepCount = -stepCount
+	} else {
+		direction = 0
+	}
+	s.SetNextDir(direction)
+
+	// Convert velocities to interval
+	// startVel and endVel are already in timer ticks between steps
+	interval := startVel
+
+	// Calculate acceleration add value
+	// For linear acceleration: interval changes by 'add' each step
+	// accel parameter represents the change in interval per step
+	add := int16(0)
+	if endVel != startVel && stepCount > 1 {
+		// Calculate add to reach endVel from startVel over stepCount steps
+		deltaInterval := int32(endVel) - int32(startVel)
+		add = int16(deltaInterval / stepCount)
+	}
+
+	// Queue the move using existing step-based system
+	return s.QueueMove(interval, uint16(stepCount), add)
+}

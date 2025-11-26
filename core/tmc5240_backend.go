@@ -1,0 +1,498 @@
+package core
+
+import (
+	"errors"
+	"machine"
+)
+
+// TMC5240Backend implements StepperBackend and PositionMover for TMC5240 stepper driver
+// Supports both step/dir mode and SPI hardware ramp mode
+type TMC5240Backend struct {
+	// SPI configuration
+	spi   machine.SPI
+	csPin machine.Pin
+
+	// GPIO pins (used in step/dir mode)
+	stepPin machine.Pin
+	dirPin  machine.Pin
+
+	// Configuration
+	invertStep bool
+	invertDir  bool
+	mode       uint8 // 0 = step/dir mode, 1 = SPI ramp mode
+
+	// Position tracking
+	currentPos int64 // Current position (updated from XACTUAL in SPI mode)
+	targetPos  int64 // Target position for current move
+
+	// Velocity and acceleration parameters (stored for conversion)
+	currentVel uint32
+	maxVel     uint32
+	accel      uint32
+
+	// Status flags
+	isInitialized bool
+	hasError      bool
+	errorCode     uint32
+}
+
+// Operating modes
+const (
+	TMC5240_MODE_STEP_DIR = 0 // Traditional step/dir mode (GPIO)
+	TMC5240_MODE_SPI_RAMP = 1 // Hardware ramp via SPI
+)
+
+// NewTMC5240Backend creates a new TMC5240 backend
+// spi: Configured SPI interface
+// csPin: Chip select pin for this TMC5240
+func NewTMC5240Backend(spi machine.SPI, csPin machine.Pin) *TMC5240Backend {
+	return &TMC5240Backend{
+		spi:   spi,
+		csPin: csPin,
+		mode:  TMC5240_MODE_STEP_DIR, // Default to step/dir for compatibility
+	}
+}
+
+// Init initializes the TMC5240 hardware
+// Implements StepperBackend.Init
+func (t *TMC5240Backend) Init(stepPin, dirPin uint8, invertStep, invertDir bool) error {
+	t.stepPin = machine.Pin(stepPin)
+	t.dirPin = machine.Pin(dirPin)
+	t.invertStep = invertStep
+	t.invertDir = invertDir
+
+	// Configure chip select pin
+	t.csPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	t.csPin.High() // CS is active low
+
+	// In step/dir mode, configure GPIO pins
+	if t.mode == TMC5240_MODE_STEP_DIR {
+		t.stepPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+		t.dirPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+
+		// Set initial states
+		if invertStep {
+			t.stepPin.High()
+		} else {
+			t.stepPin.Low()
+		}
+		if invertDir {
+			t.dirPin.High()
+		} else {
+			t.dirPin.Low()
+		}
+	}
+
+	// Initialize TMC5240 via SPI
+	if err := t.initTMC5240Registers(); err != nil {
+		return err
+	}
+
+	t.isInitialized = true
+	return nil
+}
+
+// initTMC5240Registers configures TMC5240 registers for operation
+func (t *TMC5240Backend) initTMC5240Registers() error {
+	// Clear GSTAT to reset error flags
+	if err := t.writeRegister(TMC5240_GSTAT, 0x07); err != nil {
+		return err
+	}
+
+	// Configure GCONF
+	var gconf uint32 = 0
+	if t.mode == TMC5240_MODE_SPI_RAMP {
+		// SPI mode: Enable direct mode and PWM
+		gconf |= TMC5240_GCONF_EN_PWM_MODE // Enable StealthChop
+		// Note: SHAFT bit can be set for direction inversion
+		if t.invertDir {
+			gconf |= TMC5240_GCONF_SHAFT
+		}
+	} else {
+		// Step/Dir mode: Disable direct mode, use step/dir inputs
+		gconf = 0 // Step/dir is default
+		if t.invertDir {
+			gconf |= TMC5240_GCONF_SHAFT
+		}
+	}
+	if err := t.writeRegister(TMC5240_GCONF, gconf); err != nil {
+		return err
+	}
+
+	// Configure current (IHOLD_IRUN)
+	// Format: IHOLD[4:0] | IRUN[12:8] | IHOLDDELAY[19:16]
+	iholdIrun := uint32(TMC5240_IHOLD_DEFAULT) |
+		(uint32(TMC5240_IRUN_DEFAULT) << 8) |
+		(uint32(TMC5240_IHOLDDELAY_DEFAULT) << 16)
+	if err := t.writeRegister(TMC5240_IHOLD_IRUN, iholdIrun); err != nil {
+		return err
+	}
+
+	// Configure chopper (CHOPCONF)
+	if err := t.writeRegister(TMC5240_CHOPCONF, TMC5240_CHOPCONF_DEFAULT); err != nil {
+		return err
+	}
+
+	// Configure PWM (PWMCONF) for StealthChop
+	if err := t.writeRegister(TMC5240_PWMCONF, TMC5240_PWMCONF_DEFAULT); err != nil {
+		return err
+	}
+
+	// Initialize ramp generator (even in step/dir mode for future use)
+	// Set position to 0
+	if err := t.writeRegister(TMC5240_XACTUAL, 0); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_XTARGET, 0); err != nil {
+		return err
+	}
+
+	// Set default velocities and accelerations
+	if err := t.writeRegister(TMC5240_VSTART, 1); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_VSTOP, 10); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_V1, 50000); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_VMAX, 200000); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_AMAX, 10000); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_A1, 5000); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_DMAX, 10000); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_D1, 5000); err != nil {
+		return err
+	}
+
+	// Set ramp mode to positioning
+	if err := t.writeRegister(TMC5240_RAMPMODE, TMC5240_MODE_POSITION); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Step generates a single step pulse
+// Implements StepperBackend.Step (used in step/dir mode)
+func (t *TMC5240Backend) Step() {
+	if t.mode == TMC5240_MODE_SPI_RAMP {
+		// In SPI mode, steps are generated by TMC5240 hardware
+		return
+	}
+
+	// Generate step pulse
+	if t.invertStep {
+		t.stepPin.Low()
+		// Minimum pulse width: ~1-2 microseconds
+		for i := 0; i < 10; i++ {
+			// NOP delay
+		}
+		t.stepPin.High()
+	} else {
+		t.stepPin.High()
+		for i := 0; i < 10; i++ {
+			// NOP delay
+		}
+		t.stepPin.Low()
+	}
+}
+
+// SetDirection sets the direction output
+// Implements StepperBackend.SetDirection
+func (t *TMC5240Backend) SetDirection(dir bool) {
+	if t.mode == TMC5240_MODE_SPI_RAMP {
+		// In SPI mode, direction is controlled by sign of XTARGET
+		return
+	}
+
+	// Set direction pin
+	dirValue := dir
+	if t.invertDir {
+		dirValue = !dirValue
+	}
+
+	if dirValue {
+		t.dirPin.High()
+	} else {
+		t.dirPin.Low()
+	}
+}
+
+// Stop immediately halts stepping
+// Implements StepperBackend.Stop
+func (t *TMC5240Backend) Stop() {
+	if t.mode == TMC5240_MODE_SPI_RAMP {
+		// In SPI mode, set VMAX to 0 to stop
+		t.writeRegister(TMC5240_RAMPMODE, TMC5240_MODE_HOLD)
+	}
+	// In step/dir mode, stopping is handled by not generating more pulses
+}
+
+// GetName returns backend implementation name
+// Implements StepperBackend.GetName
+func (t *TMC5240Backend) GetName() string {
+	if t.mode == TMC5240_MODE_SPI_RAMP {
+		return "TMC5240-SPI-RAMP"
+	}
+	return "TMC5240-STEP-DIR"
+}
+
+// SetMode switches between step/dir and SPI ramp modes
+func (t *TMC5240Backend) SetMode(mode uint8) error {
+	if mode != TMC5240_MODE_STEP_DIR && mode != TMC5240_MODE_SPI_RAMP {
+		return errors.New("invalid mode")
+	}
+	t.mode = mode
+
+	// Reinitialize with new mode
+	if t.isInitialized {
+		return t.initTMC5240Registers()
+	}
+	return nil
+}
+
+// writeRegister writes a 32-bit value to a TMC5240 register
+func (t *TMC5240Backend) writeRegister(addr uint8, value uint32) error {
+	// TMC5240 SPI protocol: [ADDR|WRITE_BIT][DATA3][DATA2][DATA1][DATA0]
+	txBuf := []byte{
+		addr | TMC5240_WRITE_BIT,
+		uint8(value >> 24),
+		uint8(value >> 16),
+		uint8(value >> 8),
+		uint8(value),
+	}
+	rxBuf := make([]byte, 5)
+
+	// Chip select low
+	t.csPin.Low()
+
+	// Transfer
+	err := t.spi.Tx(txBuf, rxBuf)
+
+	// Chip select high
+	t.csPin.High()
+
+	return err
+}
+
+// readRegister reads a 32-bit value from a TMC5240 register
+func (t *TMC5240Backend) readRegister(addr uint8) (uint32, error) {
+	// TMC5240 requires two transactions: write address, then read data
+	// First transaction: send read address
+	txBuf1 := []byte{addr & 0x7F, 0, 0, 0, 0} // Clear write bit
+	rxBuf1 := make([]byte, 5)
+
+	t.csPin.Low()
+	err := t.spi.Tx(txBuf1, rxBuf1)
+	t.csPin.High()
+
+	if err != nil {
+		return 0, err
+	}
+
+	// Small delay between transactions
+	for i := 0; i < 10; i++ {
+		// NOP
+	}
+
+	// Second transaction: read the data
+	txBuf2 := []byte{addr & 0x7F, 0, 0, 0, 0}
+	rxBuf2 := make([]byte, 5)
+
+	t.csPin.Low()
+	err = t.spi.Tx(txBuf2, rxBuf2)
+	t.csPin.High()
+
+	if err != nil {
+		return 0, err
+	}
+
+	// Combine bytes into 32-bit value
+	value := uint32(rxBuf2[1])<<24 | uint32(rxBuf2[2])<<16 |
+		uint32(rxBuf2[3])<<8 | uint32(rxBuf2[4])
+
+	return value, nil
+}
+
+// --- PositionMover Interface Implementation ---
+
+// MoveToPosition commands the TMC5240 to move to an absolute position
+// Implements PositionMover.MoveToPosition
+func (t *TMC5240Backend) MoveToPosition(targetPos int64, startVel, endVel, accel uint32) error {
+	if !t.isInitialized {
+		return errors.New("TMC5240 not initialized")
+	}
+
+	if t.mode != TMC5240_MODE_SPI_RAMP {
+		return errors.New("position moves require SPI ramp mode")
+	}
+
+	// Store parameters
+	t.targetPos = targetPos
+	t.maxVel = endVel
+	t.accel = accel
+
+	// Convert Klipper parameters to TMC5240 format
+	// Klipper uses: interval (timer ticks between steps)
+	// TMC5240 uses: velocity in Hz, scaled by 2^24 / fCLK
+
+	// Convert startVel from interval to velocity
+	// velocity_hz = TIMER_FREQ / interval
+	// TMC5240_velocity = velocity_hz * 2^24 / fCLK
+	vstart := t.intervalToTMCVelocity(startVel)
+	vmax := t.intervalToTMCVelocity(endVel)
+	amax := t.accelToTMCAccel(accel)
+
+	// Set velocities
+	if err := t.writeRegister(TMC5240_VSTART, vstart); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_VMAX, vmax); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_AMAX, amax); err != nil {
+		return err
+	}
+	if err := t.writeRegister(TMC5240_DMAX, amax); err != nil { // Use same for decel
+		return err
+	}
+
+	// Set target position (signed 32-bit)
+	if err := t.writeRegister(TMC5240_XTARGET, uint32(targetPos)); err != nil {
+		return err
+	}
+
+	// Ensure we're in positioning mode
+	if err := t.writeRegister(TMC5240_RAMPMODE, TMC5240_MODE_POSITION); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// intervalToTMCVelocity converts Klipper interval to TMC5240 velocity format
+func (t *TMC5240Backend) intervalToTMCVelocity(interval uint32) uint32 {
+	if interval == 0 {
+		return 0
+	}
+
+	// velocity_hz = TIMER_FREQ / interval
+	// Assuming TIMER_FREQ = 12MHz (12000000)
+	const TIMER_FREQ = 12000000
+	velocityHz := TIMER_FREQ / interval
+
+	// TMC5240 velocity = velocity_hz * 2^24 / fCLK
+	// fCLK = 12MHz for TMC5240
+	tmcVel := (velocityHz * 16777216) / TMC5240_FCLK
+
+	return tmcVel
+}
+
+// accelToTMCAccel converts Klipper acceleration to TMC5240 format
+func (t *TMC5240Backend) accelToTMCAccel(accel uint32) uint32 {
+	// Klipper accel: change in interval per step
+	// TMC5240 accel: acceleration in Hz/s, scaled by 2^40 / (fCLK^2)
+	// This is a simplified conversion - may need tuning
+	// For now, use a scaling factor
+	const ACCEL_SCALE = 1000
+	return accel * ACCEL_SCALE
+}
+
+// GetHardwarePosition reads the current position from TMC5240
+// Implements PositionMover.GetHardwarePosition
+func (t *TMC5240Backend) GetHardwarePosition() (int64, error) {
+	if t.mode != TMC5240_MODE_SPI_RAMP {
+		return t.currentPos, nil
+	}
+
+	xactual, err := t.readRegister(TMC5240_XACTUAL)
+	if err != nil {
+		return 0, err
+	}
+
+	// XACTUAL is signed 32-bit
+	t.currentPos = int64(int32(xactual))
+	return t.currentPos, nil
+}
+
+// IsMoving returns true if the TMC5240 is currently executing a move
+// Implements PositionMover.IsMoving
+func (t *TMC5240Backend) IsMoving() bool {
+	if t.mode != TMC5240_MODE_SPI_RAMP {
+		return false
+	}
+
+	// Read RAMP_STAT register
+	rampStat, err := t.readRegister(TMC5240_RAMP_STAT)
+	if err != nil {
+		return false
+	}
+
+	// Check VZERO bit (bit 10) - set when velocity is zero
+	return (rampStat & TMC5240_RAMP_STAT_VZERO) == 0
+}
+
+// GetMoveStatus returns detailed status for debugging
+// Implements PositionMover.GetMoveStatus
+func (t *TMC5240Backend) GetMoveStatus() (int64, int64, uint32, uint32) {
+	if t.mode != TMC5240_MODE_SPI_RAMP {
+		return t.currentPos, t.targetPos, 0, 0
+	}
+
+	// Read current position
+	xactual, _ := t.readRegister(TMC5240_XACTUAL)
+	currentPos := int64(int32(xactual))
+
+	// Read target position
+	xtarget, _ := t.readRegister(TMC5240_XTARGET)
+	targetPos := int64(int32(xtarget))
+
+	// Read current velocity
+	vactual, _ := t.readRegister(TMC5240_VACTUAL)
+
+	// Read status flags
+	rampStat, _ := t.readRegister(TMC5240_RAMP_STAT)
+
+	return currentPos, targetPos, vactual, rampStat
+}
+
+// GetDiagnostics reads TMC5240 diagnostic information
+func (t *TMC5240Backend) GetDiagnostics() (drvStatus uint32, err error) {
+	return t.readRegister(TMC5240_DRV_STATUS)
+}
+
+// CheckErrors checks for TMC5240 error conditions
+func (t *TMC5240Backend) CheckErrors() error {
+	drvStatus, err := t.GetDiagnostics()
+	if err != nil {
+		return err
+	}
+
+	// Check for error conditions
+	if drvStatus&TMC5240_DRV_STATUS_OT != 0 {
+		return errors.New("TMC5240 overtemperature")
+	}
+	if drvStatus&TMC5240_DRV_STATUS_S2GA != 0 {
+		return errors.New("TMC5240 short to ground phase A")
+	}
+	if drvStatus&TMC5240_DRV_STATUS_S2GB != 0 {
+		return errors.New("TMC5240 short to ground phase B")
+	}
+	if drvStatus&TMC5240_DRV_STATUS_S2VSA != 0 {
+		return errors.New("TMC5240 short to supply phase A")
+	}
+	if drvStatus&TMC5240_DRV_STATUS_S2VSB != 0 {
+		return errors.New("TMC5240 short to supply phase B")
+	}
+
+	return nil
+}

@@ -48,6 +48,11 @@ func RegisterStepperCommands() {
 		"oid=%c trsync_oid=%c",
 		cmdStepperStopOnTrigger)
 
+	// move_to_position: Position-based move command (for hardware ramp drivers like TMC5240)
+	RegisterCommand("move_to_position",
+		"oid=%c target_pos=%i start_vel=%u end_vel=%u accel=%u",
+		cmdMoveToPosition)
+
 	// Response: stepper position query result
 	RegisterResponse("stepper_position", "oid=%c pos=%i")
 }
@@ -231,4 +236,41 @@ func cmdStepperGetInfo(data *[]byte) error {
 	_ = stepper
 
 	return nil
+}
+
+// cmdMoveToPosition handles move_to_position command
+// Format: oid=%c target_pos=%i start_vel=%u end_vel=%u accel=%u
+// This command enables hardware ramp generation for drivers like TMC5240
+func cmdMoveToPosition(data *[]byte) error {
+	oid, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	targetPos, err := protocol.DecodeVLQInt(data)
+	if err != nil {
+		return err
+	}
+
+	startVel, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	endVel, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	accel, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+
+	stepper := GetStepper(uint8(oid))
+	if stepper == nil {
+		return errors.New("stepper not found")
+	}
+
+	return stepper.MoveToPosition(int64(targetPos), startVel, endVel, accel)
 }

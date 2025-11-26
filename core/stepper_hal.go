@@ -35,3 +35,25 @@ type StepperBackendInfo struct {
 	TypicalJitter uint32 // Typical timing jitter (ns)
 	CPUOverhead   uint8  // CPU overhead percentage (0-100)
 }
+
+// PositionMover is an optional interface for backends that support position-based moves
+// This enables hardware ramp generation (e.g., TMC5240, TMC5160)
+type PositionMover interface {
+	// MoveToPosition commands the backend to move to an absolute position
+	// targetPos: Absolute target position in steps
+	// startVel: Starting velocity (timer ticks between steps)
+	// endVel: Ending velocity (timer ticks between steps)
+	// accel: Acceleration value (change in interval per step)
+	MoveToPosition(targetPos int64, startVel, endVel, accel uint32) error
+
+	// GetHardwarePosition reads the current position from hardware
+	// For drivers with position registers (TMC5240 XACTUAL)
+	GetHardwarePosition() (int64, error)
+
+	// IsMoving returns true if hardware is currently executing a move
+	IsMoving() bool
+
+	// GetMoveStatus returns detailed status for debugging
+	// Returns: currentPos, targetPos, currentVel, statusFlags
+	GetMoveStatus() (int64, int64, uint32, uint32)
+}
