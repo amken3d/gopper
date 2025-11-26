@@ -2,7 +2,9 @@
 
 ## Overview
 
-This implementation adds support for TMC5240 stepper drivers with hardware ramp generation to Gopper. The design maintains full backward compatibility with Klipper while enabling advanced features like offloaded motion control.
+This implementation adds support for TMC5240 stepper drivers with hardware ramp generation to Gopper. The design maintains compatibility with Klipper's protocol while enabling hardware-accelerated motion control.
+
+**Important:** TMC5240 is SPI-controlled only. It does NOT support traditional step/dir input mode like TMC2209 or A4988 drivers. The TMC5240 uses its internal motion controller accessed via SPI for all stepping operations.
 
 ## Architecture
 
@@ -50,10 +52,8 @@ This implementation adds support for TMC5240 stepper drivers with hardware ramp 
    - Full TMC5240 backend implementation
    - Implements both StepperBackend and PositionMover interfaces
    - SPI communication (read/write registers)
-   - Two operating modes:
-     - TMC5240_MODE_STEP_DIR: Traditional step/dir (Klipper compatible)
-     - TMC5240_MODE_SPI_RAMP: Hardware ramp generation
-   - Hardware initialization
+   - SPI-only control (no step/dir GPIO mode)
+   - Hardware initialization with StealthChop enabled
    - Position tracking (XACTUAL register)
    - Status monitoring (RAMP_STAT, DRV_STATUS)
    - Error checking (overtemperature, shorts, open loads)
@@ -90,12 +90,13 @@ This implementation adds support for TMC5240 stepper drivers with hardware ramp 
 
 ## Key Design Decisions
 
-### 1. Two Operating Modes
+### 1. SPI-Only Operation
 
-**Why both modes?**
-- Step/Dir mode ensures immediate compatibility with standard Klipper
-- SPI Ramp mode enables advanced features for users who want them
-- Users can choose based on their needs
+**Why SPI only?**
+- TMC5240 hardware is designed for SPI control with internal motion controller
+- Unlike TMC2209, TMC5240 does not have step/dir input pins as primary interface
+- Hardware ramp generation is the core feature of TMC5240
+- Attempting step/dir mode would bypass all TMC5240 advantages
 
 ### 2. Backward Compatibility
 
@@ -190,7 +191,7 @@ func main() {
     // Configure SPI
     spi := machine.SPI0
     spi.Configure(machine.SPIConfig{
-        Frequency: 4000000,  // 4 MHz (TMC5240 supports up to 4 MHz)
+        Frequency: 4000000,  // 4 MHz (TMC5240 max is 4 MHz)
         Mode:      3,         // SPI Mode 3 (CPOL=1, CPHA=1)
         SCK:       machine.Pin(18),
         SDO:       machine.Pin(19),
@@ -200,11 +201,6 @@ func main() {
     // Create TMC5240 backend
     csPin := machine.Pin(17)  // Chip select for X axis
     tmc5240 := core.NewTMC5240Backend(spi, csPin)
-
-    // Choose operating mode
-    tmc5240.SetMode(core.TMC5240_MODE_STEP_DIR)   // For Klipper compatibility
-    // OR
-    tmc5240.SetMode(core.TMC5240_MODE_SPI_RAMP)   // For hardware ramp
 
     // Register backend factory
     core.SetStepperBackendFactory(func() core.StepperBackend {
@@ -218,22 +214,24 @@ func main() {
 
 ### Step 2: From Klipper Console
 
-**Using Step/Dir Mode:**
+**Using Position-Based Commands (Native TMC5240 Mode):**
 ```python
-# Works exactly like standard Klipper
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=100
->>> set_next_step_dir oid=0 dir=0
->>> queue_step oid=0 interval=5000 count=100 add=0
+# Configure stepper (step_pin/dir_pin are ignored for TMC5240)
+>>> config_stepper oid=0 step_pin=0 dir_pin=0 invert_step=0 step_pulse_ticks=0
+
+# Position-based move command
+>>> move_to_position oid=0 target_pos=10000 start_vel=5000 end_vel=8000 accel=500
 ```
 
-**Using SPI Ramp Mode:**
+**Using Traditional queue_step (Automatic Conversion):**
 ```python
-# New position-based command
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=100
->>> move_to_position oid=0 target_pos=10000 start_vel=5000 end_vel=8000 accel=500
+# Configure stepper
+>>> config_stepper oid=0 step_pin=0 dir_pin=0 invert_step=0 step_pulse_ticks=0
 
-# Can still use queue_step (will be converted automatically)
+# Traditional step-based command (automatically converted to position-based)
+>>> set_next_step_dir oid=0 dir=0
 >>> queue_step oid=0 interval=5000 count=100 add=0
+# Firmware converts this to move_to_position internally
 ```
 
 ### Step 3: Multi-Axis Coordination
@@ -340,18 +338,20 @@ func main() {
    - Resonance testing
    - Motor parameter identification
 
-## Comparison: Step/Dir vs SPI Ramp
+## Comparison: TMC5240 vs Traditional Drivers
 
-| Feature | Step/Dir Mode | SPI Ramp Mode |
-|---------|--------------|---------------|
-| **Klipper Compatibility** | 100% compatible | Requires host changes |
-| **MCU Load** | High (timer per step) | Low (SPI only) |
-| **Motion Smoothness** | Good (PIO) / Fair (GPIO) | Excellent (hardware) |
-| **Max Step Rate** | 500kHz (PIO) / 200kHz (GPIO) | 1+ MHz (TMC5240) |
-| **Jitter** | <10ns (PIO) / ~500ns (GPIO) | <1ns (crystal locked) |
-| **Multi-Axis Sync** | Perfect (timer based) | Very good (SPI based) |
-| **Configuration** | No changes needed | New commands |
-| **Debugging** | Easy (GPIO visible) | Need SPI analyzer |
+| Feature | TMC5240 (SPI) | Traditional Drivers (Step/Dir) |
+|---------|---------------|-------------------------------|
+| **Control Method** | SPI position commands | GPIO step pulses |
+| **Klipper Compatibility** | Works (with conversion) | Native |
+| **MCU Load** | Very low (SPI only) | High (timer per step) |
+| **Motion Smoothness** | Excellent (hardware ramp) | Good (PIO) / Fair (GPIO) |
+| **Max Step Rate** | 1+ MHz (hardware) | 500kHz (PIO) / 200kHz (GPIO) |
+| **Jitter** | <1ns (crystal locked) | <10ns (PIO) / ~500ns (GPIO) |
+| **Multi-Axis Sync** | Very good (SPI based) | Perfect (timer based) |
+| **Configuration** | SPI + position commands | GPIO pins only |
+| **Debugging** | Need SPI analyzer | Easy (GPIO visible) |
+| **Advanced Features** | StallGuard, load monitoring | Basic drive only |
 
 ## Conclusion
 

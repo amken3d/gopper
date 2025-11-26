@@ -126,19 +126,16 @@ picocom /dev/ttyACM0 -b 250000
 
 Gopper supports TMC5240 stepper drivers with hardware ramp generation, enabling smoother motion and reduced MCU load.
 
-### Two Operating Modes
+### SPI-Only Control
 
-**Step/Dir Mode** (Default - Full Klipper Compatibility):
-- TMC5240 receives step/dir signals like traditional drivers
-- MCU generates step pulses via timer callbacks
-- Full compatibility with standard Klipper host
-- Benefits: StealthChop, current control, StallGuard, diagnostics
+**Important:** TMC5240 is SPI-controlled only and does NOT support traditional step/dir input mode like TMC2209 or A4988. The TMC5240's strength is its internal motion controller accessed via SPI.
 
-**SPI Hardware Ramp Mode** (Advanced - Offloaded Motion):
-- TMC5240 internal motion controller generates steps
+**How TMC5240 works:**
+- TMC5240 internal motion controller generates steps autonomously
 - MCU sends position targets via SPI
-- Uses `move_to_position` command instead of `queue_step`
-- Requires Klipper host modifications (Python side)
+- Uses `move_to_position` command (position-based protocol)
+- Hardware ramp generator handles acceleration/deceleration
+- Requires Klipper host modifications (Python side) to send position commands
 
 ### Position-Based Move Protocol
 
@@ -172,18 +169,12 @@ move_to_position oid=%c target_pos=%i start_vel=%u end_vel=%u accel=%u
 // In targets/rp2040/main.go or similar
 spi := machine.SPI0
 spi.Configure(machine.SPIConfig{
-    Frequency: 4000000, // 4 MHz
+    Frequency: 4000000, // 4 MHz (TMC5240 max is 4 MHz)
     Mode:      3,        // SPI Mode 3 for TMC5240
 })
 
 csPin := machine.Pin(17)
 tmc5240 := core.NewTMC5240Backend(spi, csPin)
-
-// Use step/dir mode (default, Klipper compatible)
-tmc5240.SetMode(core.TMC5240_MODE_STEP_DIR)
-
-// OR use hardware ramp mode
-tmc5240.SetMode(core.TMC5240_MODE_SPI_RAMP)
 
 // Register as stepper backend
 core.SetStepperBackendFactory(func() core.StepperBackend {
@@ -191,25 +182,23 @@ core.SetStepperBackendFactory(func() core.StepperBackend {
 })
 ```
 
-**From Klipper console (step/dir mode):**
+**From Klipper console:**
 ```python
-# Traditional step-based commands work as normal
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=100
->>> queue_step oid=0 interval=5000 count=100 add=0
-```
-
-**From Klipper console (SPI ramp mode):**
-```python
-# Position-based commands
->>> config_stepper oid=0 step_pin=2 dir_pin=3 invert_step=0 step_pulse_ticks=100
+# Position-based commands (native TMC5240 mode)
+>>> config_stepper oid=0 step_pin=0 dir_pin=0 invert_step=0 step_pulse_ticks=0
 >>> move_to_position oid=0 target_pos=10000 start_vel=5000 end_vel=8000 accel=500
+
+# Traditional queue_step also works (automatically converted to position-based)
+>>> queue_step oid=0 interval=5000 count=100 add=0
+# This is internally converted to move_to_position by the firmware
 ```
 
 ### Future Enhancements
-- Klipper host Python module for automatic TMC5240 detection
-- Hybrid mode: use SPI ramp for homing, step/dir for printing
-- StallGuard-based sensorless homing
+- Klipper host Python module for automatic TMC5240 detection and position-based commands
+- StallGuard-based sensorless homing integration
 - Real-time load monitoring and adaptive speed control
+- S-curve acceleration support (TMC5240 hardware feature)
+- Automatic velocity/acceleration calibration
 
 ## Architecture Overview
 
