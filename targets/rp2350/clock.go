@@ -1,4 +1,4 @@
-//go:build rp2040
+//go:build rp2350
 
 package main
 
@@ -20,23 +20,23 @@ var (
 	timerRAWL = (*volatile.Register32)(unsafe.Pointer(uintptr(timerTIMERAWL)))
 )
 
-// InitClock initializes the RP2040 hardware timer
-// The RP2040 has a 64-bit microsecond timer at 1MHz
+// InitClock initializes the RP2350 hardware timer
+// The RP2350 has a 64-bit microsecond timer at 1MHz (same as RP2040)
 func InitClock() {
-	// RP2040 timer runs at 1MHz by default
+	// RP2350 timer runs at 1MHz by default (same as RP2040)
 	// Register MCU-specific constant
-	core.RegisterConstant("MCU", "rp2040")
+	core.RegisterConstant("MCU", "rp2350")
 	core.RegisterConstant("CLOCK_FREQ", uint32(1000000)) // 1MHz
 }
 
-// GetHardwareTime reads the RP2040 hardware timer
+// GetHardwareTime reads the RP2350 hardware timer
 // Returns the low 32 bits of the microsecond counter
 func GetHardwareTime() uint32 {
 	// Read the low 32 bits of the timer
 	return timerRAWL.Get()
 }
 
-// GetHardwareUptime reads the full 64-bit RP2040 hardware timer
+// GetHardwareUptime reads the full 64-bit RP2350 hardware timer
 func GetHardwareUptime() uint64 {
 	// Read both high and low parts
 	// Must read high first, then low, then high again to detect rollover

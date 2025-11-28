@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	stepPin = machine.GP2
-	dirPin  = machine.GP3
+	stepPin = machine.STEP7
+	dirPin  = machine.DIR7
 )
 
 // Speed test configurations: clock divider and expected approximate frequency
@@ -21,18 +21,18 @@ var speedTests = []struct {
 	divider uint16
 	name    string
 }{
-	{10000, "Very Slow (~1.2 kHz)"},
-	{5000, "Slow (~2.4 kHz)"},
-	{2000, "Medium-Slow (~6 kHz)"},
-	{1000, "Medium (~12 kHz)"},
-	{500, "Medium-Fast (~24 kHz)"},
-	{200, "Fast (~60 kHz)"},
+	//{10000, "Very Slow (~1.2 kHz)"},
+	//{5000, "Slow (~2.4 kHz)"},
+	//{2000, "Medium-Slow (~6 kHz)"},
+	//{1000, "Medium (~12 kHz)"},
+	//{500, "Medium-Fast (~24 kHz)"},
+	//{200, "Fast (~60 kHz)"},
 	{100, "Very Fast (~120 kHz)"},
 	{50, "Ultra Fast (~240 kHz)"},
 	{25, "~500 Khz"},
-	{12, "~1Mhz"},
-	{6, "~2Mhz"},
-	{2, "Guess"},
+	//{12, "~1Mhz"},
+	//{6, "~2Mhz"},
+	//{2, "Guess"},
 }
 
 func main() {
@@ -88,7 +88,7 @@ func main() {
 			// Generate pulses for 3 seconds at this speed
 			// Only queue when FIFO has space (non-blocking approach)
 			startTime := time.Now()
-			for time.Since(startTime) < 15*time.Second {
+			for time.Since(startTime) < 3*time.Second {
 				// Only queue if not busy (FIFO has space)
 				if !stepper.IsBusy() {
 					stepper.QueueSteps(100)

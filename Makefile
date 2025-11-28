@@ -3,6 +3,8 @@
 .PHONY: all clean test rp2040 stm32f4 test-pwm wasm wasm-serve ui
 
 TINYGO = tinygo
+TINYGO_CREA8_ROOT = /home/hkeni/sdk/tinygo-versions/tinygo-crea8
+TINYGO_CREA8 = TINYGOROOT=$(TINYGO_CREA8_ROOT) $(TINYGO_CREA8_ROOT)/bin/tinygo
 
 # Default target
 all: rp2040
@@ -10,6 +12,34 @@ all: rp2040
 # Build for RP2040 (Raspberry Pi Pico)
 rp2040:
 	$(TINYGO) build -target=pico -size=short -o build/gopper-rp2040.uf2 ./targets/rp2040
+
+# Build for RP2350 (generic - metro-rp2350 target)
+rp2350:
+	$(TINYGO) build -target=metro-rp2350 -size=short -o build/gopper-rp2350.uf2 ./targets/rp2350
+
+# Build for RP2350 (Pico2 board)
+rp2350-pico2:
+	$(TINYGO) build -target=pico2 -size=short -o build/gopper-pico2.uf2 ./targets/rp2350
+
+# Build for Crea8 board (RP2350B-based) - uses rp2350 target
+crea8:
+	$(TINYGO_CREA8) build -target=amken-crea8 -size=short -o build/gopper-crea8.uf2 ./targets/rp2350
+
+# Flash to Crea8 board
+flash-crea8:
+	$(TINYGO_CREA8) flash -target=amken-crea8 -size=short ./targets/rp2350
+
+# Build blink test for Crea8 (basic USB/LED test)
+test-blink-crea8:
+	$(TINYGO_CREA8) build -target=amken-crea8 -size=short -o build/blink-test-crea8.uf2 ./test/blink_test
+
+# Flash blink test to Crea8
+flash-blink-crea8:
+	$(TINYGO_CREA8) flash -target=amken-crea8 -size=short ./test/blink_test
+
+# Build USB debug test for Crea8
+test-usb-debug-crea8:
+	$(TINYGO_CREA8) build -target=amken-crea8 -size=short -o build/usb-debug-crea8.uf2 ./test/usb_debug
 
 # Build for STM32F4
 stm32f4:
@@ -51,6 +81,14 @@ test-simple-stepper:
 test-simple-stepper-rp2350b:
 	$(TINYGO) build -target=rp2350b -size=short -o build/simple-stepper-rp2350b.uf2 ./test/pio_simple_stepper
 
+# Test 7-axis stepper for Crea8 board (uses custom TinyGo with Crea8 target)
+test-7axis-crea8:
+	$(TINYGO_CREA8) build -target=amken-crea8 -size=short -o build/7axis-crea8.uf2 ./test/pio_7axis
+
+# Flash 7-axis test to Crea8 board
+flash-7axis-crea8:
+	$(TINYGO_CREA8) flash -target=amken-crea8 -size=short ./test/pio_7axis
+
 # Test 7-axis stepper (RP2040/Pico for testing)
 test-7axis:
 	$(TINYGO) build -target=pico -size=short -o build/7axis-test.uf2 ./test/pio_7axis
@@ -58,6 +96,18 @@ test-7axis:
 # Test 7-axis stepper (RP2350 - uses metro-rp2350 target)
 test-7axis-rp2350:
 	$(TINYGO) build -target=metro-rp2350 -size=short -o build/7axis-rp2350.uf2 ./test/pio_7axis
+
+# Test coordinated multi-axis motion for Crea8 board
+test-coordinated-crea8:
+	$(TINYGO_CREA8) build -target=amken-crea8 -size=short -o build/coordinated-crea8.uf2 ./test/pio_coordinated
+
+# Flash coordinated test to Crea8 board
+flash-coordinated-crea8:
+	$(TINYGO_CREA8) flash -target=amken-crea8 -size=short ./test/pio_coordinated
+
+# Test coordinated motion (RP2040/Pico)
+test-coordinated:
+	$(TINYGO) build -target=pico -size=short -o build/coordinated-test.uf2 ./test/pio_coordinated
 
 # Test PIO stepper V2 (with AssemblerV1 and side-set)
 test-pio-v2:
@@ -70,6 +120,10 @@ test-pio-v2-rp2350:
 # Test stepper backends (PIO vs GPIO comparison)
 test-stepper-backends:
 	$(TINYGO) build -target=pico -size=short -o build/stepper-backends-test.uf2 ./test/stepper_backends
+
+# Test GPIO stepper backend only
+test-gpio-stepper:
+	$(TINYGO) build -target=pico -size=short -o build/gpio-stepper-test.uf2 ./test/gpio_stepper
 
 # Run tests (protocol package only - core tests TODO)
 test:

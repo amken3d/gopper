@@ -106,12 +106,12 @@ func (d *Dictionary) BuildDictionary() {
 	// Generate uncompressed JSON (without acquiring lock - we already have it)
 	jsonData := d.buildJSONLocked()
 
-	// Compress using custom tinycompress/zlib (TinyGo-compatible implementation)
+	// Re-enable compression - Klipper requires it
 	var buf bytes.Buffer
 	w := tinycompress.NewWriter(&buf)
 	_, err := w.Write(jsonData)
 	if err != nil {
-		// If compression fails, use uncompressed
+		// If compression fails, use uncompressed (Klipper will fail, but firmware won't crash)
 		d.cachedDict = jsonData
 		return
 	}
@@ -125,6 +125,15 @@ func (d *Dictionary) BuildDictionary() {
 	// CRITICAL: Copy bytes to ensure data persists after Buffer is garbage collected
 	// TinyGo's GC might reclaim the Buffer's internal array
 	compressed := buf.Bytes()
+
+	// Safety check: ensure compression produced valid output
+	if len(compressed) == 0 {
+		// Compression failed silently - use uncompressed
+		d.cachedDict = jsonData
+		return
+	}
+
+	// Use the compressed data
 	d.cachedDict = make([]byte, len(compressed))
 	copy(d.cachedDict, compressed)
 }

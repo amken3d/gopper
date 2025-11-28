@@ -1,11 +1,11 @@
-//go:build rp2040
+//go:build rp2350
 
 package main
 
 import (
 	"gopper/core"
 	"gopper/protocol"
-	// piostepper "gopper/targets/pio" // TEMPORARILY DISABLED FOR DEBUGGING
+	// piostepper "gopper/targets/pio" // DISABLED: Crashes on RP2350 during InitSteppers()
 	"machine"
 	"time"
 )
@@ -30,12 +30,10 @@ func main() {
 
 	// CRITICAL: Disable watchdog on boot to clear any previous state
 	// This prevents issues with watchdog persisting across resets
-	// TESTING: Disabled for RP2350 debugging - might be causing crash
-	// var err error
-	// err := machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
-	// if err != nil {
-	// 	return
-	// }
+	err := machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
+	if err != nil {
+		return
+	}
 
 	// Initialize clock
 	InitClock()
@@ -44,63 +42,46 @@ func main() {
 	// Initialize core commands
 	core.InitCoreCommands()
 
-	// Initialize ADC commands
+	// Step 1: GPIO and ADC (most basic peripherals) - WORKING ✓
 	core.InitADCCommands()
-
-	// Initialize GPIO commands
 	core.InitGPIOCommands()
 
-	// Initialize PWM commands
+	// Step 2: PWM, SPI, and I2C - WORKING ✓
 	core.InitPWMCommands()
-
-	// Initialize SPI commands
 	core.InitSPICommands()
-
-	// Initialize trigger sync commands (needed for stepper homing)
-	core.InitTriggerSyncCommands()
-
-	// Initialize I2C commands
 	core.InitI2CCommands()
 
-	// Initialize endstop commands
-	core.InitEndstopCommands()
-	core.InitAnalogEndstopCommands()
-	core.InitI2CEndstopCommands()
+	// Step 3: Disable endstops for now - compression crashes with them
+	// The crash happens at dictionary offset 240 during transmission
+	// This suggests the compressed dictionary is corrupted or too large
+	// TODO: Investigate tinycompress library on RP2350
+	// core.InitEndstopCommands()
+	// core.InitAnalogEndstopCommands()
+	// core.InitI2CEndstopCommands()
+	// core.InitTriggerSyncCommands()
 
-	// Initialize trigger sync commands
-	core.InitTriggerSyncCommands()
-
-	// Initialize stepper commands and backend
-	// TEMPORARILY DISABLED FOR DEBUGGING
+	// Step 4: Disable ALL stepper-related code for RP2350
 	// piostepper.InitSteppers()
+	// core.RegisterStepperCommands()
+	// core.InitDriverCommands()
 
-	// Register stepper commands but without backend (for testing)
-	core.RegisterStepperCommands()
-
-	// Initialize driver registry commands
-	core.InitDriverCommands()
-
-	// Register combined pin enumeration for RP2040
+	// Register combined pin enumeration for RP2350
 	// This must happen before BuildDictionary()
-	// Indices 0-29: GPIO pins (gpio0-gpio29)
-	// Indices 30-34: ADC channels (ADC0-ADC3, ADC_TEMPERATURE)
-	registerRP2040Pins()
+	// Indices 0-47: GPIO pins (gpio0-gpio47)
+	// Indices 48-52: ADC channels (ADC0-ADC3, ADC_TEMPERATURE)
+	registerRP2350Pins()
 
-	// Initialize and register ADC driver (without registering pins - already done above)
+	// Step 1: GPIO and ADC drivers - WORKING ✓
 	adcDriver := NewRPAdcDriver()
 	core.SetADCDriver(adcDriver)
-
-	// Initialize and register GPIO driver (without registering pins - already done above)
 	gpioDriver := NewRPGPIODriver()
 	core.SetGPIODriver(gpioDriver)
 
-	// Initialize and register PWM driver
+	// Step 2: Add PWM and SPI drivers
 	pwmDriver := NewRP2040PWMDriver()
 	core.SetPWMDriver(pwmDriver)
-	// Initialize and register SPI drivers
 	spiDriver := NewRP2040SPIDriver()
 	core.SetSPIDriver(spiDriver)
-
 	softwareSPIDriver := NewRP2040SoftwareSPIDriver()
 	core.SetSoftwareSPIDriver(softwareSPIDriver)
 
@@ -127,16 +108,26 @@ func main() {
 	})
 	core.SetGlobalTransport(transport)
 
-	// Set reset handler to trigger watchdog reset (recommended for RP2040)
+	// Set reset handler to trigger watchdog reset (recommended for RP2040/RP2350)
 	// This is used by Klipper's FIRMWARE_RESTART command
-	// TESTING: Disabled for RP2350 debugging
 	core.SetResetHandler(func() {
-		// Use machine.CPUReset() as fallback for RP2350 testing
-		machine.CPUReset()
+		// Use watchdog reset instead of ARM SYSRESETREQ
+		// This is more reliable on RP2040/RP2350 and handles USB re-enumeration better
+		err = machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 1})
+		if err != nil {
+			return
+		}
+		err = machine.Watchdog.Start()
+		if err != nil {
+			return
+		}
+		// Wait for reset (should happen in ~1ms)
+		for {
+			time.Sleep(1 * time.Millisecond)
+		}
 	})
 	// Start USB reader goroutine
-	// TESTING: Disabled goroutine for RP2350 debugging
-	// go usbReaderLoop()
+	go usbReaderLoop()
 
 	// Main loop - start immediately
 	for {
@@ -153,27 +144,6 @@ func main() {
 
 			// Update system time from hardware
 			UpdateSystemTime()
-
-			// Read USB data inline (no goroutine)
-			if USBAvailable() > 0 {
-				data, err := USBRead()
-				if err == nil {
-					if usbWasDisconnected {
-						usbWasDisconnected = false
-						inputBuffer.Reset()
-						outputBuffer.Reset()
-						transport.Reset()
-						core.ResetFirmwareState()
-						messagesReceived = 0
-						messagesSent = 0
-						consecutiveWriteFailures = 0
-					}
-					written := inputBuffer.Write([]byte{data})
-					if written == 0 {
-						msgerrors++
-					}
-				}
-			}
 
 			// Process incoming messages
 			if inputBuffer.Available() > 0 {
@@ -269,23 +239,23 @@ func handleCommand(cmdID uint16, data *[]byte) error {
 	return core.DispatchCommand(cmdID, data)
 }
 
-// registerRP2040Pins registers all pin names for the RP2040
-// Combines GPIO pins (0-29) and ADC channels (30-34) into a single enumeration
-func registerRP2040Pins() {
-	// Total: 30 GPIO pins + 5 ADC channels = 35 total pins
-	pinNames := make([]string, 35)
+// registerRP2350Pins registers all pin names for the RP2350
+// Combines GPIO pins (0-47) and ADC channels (48-52) into a single enumeration
+func registerRP2350Pins() {
+	// Total: 48 GPIO pins + 5 ADC channels = 53 total pins
+	pinNames := make([]string, 53)
 
-	// Indices 0-29: GPIO pins (gpio0-gpio29)
-	for i := 0; i < 30; i++ {
+	// Indices 0-47: GPIO pins (gpio0-gpio47)
+	for i := 0; i < 48; i++ {
 		pinNames[i] = "gpio" + itoa(i)
 	}
 
-	// Indices 30-34: ADC channels
-	pinNames[30] = "ADC0"
-	pinNames[31] = "ADC1"
-	pinNames[32] = "ADC2"
-	pinNames[33] = "ADC3"
-	pinNames[34] = "ADC_TEMPERATURE"
+	// Indices 48-52: ADC channels
+	pinNames[48] = "ADC0"
+	pinNames[49] = "ADC1"
+	pinNames[50] = "ADC2"
+	pinNames[51] = "ADC3"
+	pinNames[52] = "ADC_TEMPERATURE"
 
 	// Register the combined enumeration
 	core.RegisterEnumeration("pin", pinNames)
