@@ -13,14 +13,14 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 - ✅ Type-safe implementation with Go's strong typing
 - ✅ Support for modern microcontrollers
   - **RP2040** (Raspberry Pi Pico) - Full support
-  - **RP2350** (Raspberry Pi Pico 2, Crea8) - Peripheral support
+  - **RP2350** (Raspberry Pi Pico 2, Crea8) - Full support
   - STM32G0B1/H723 (planned)
 
 ## Status
 
 ⚠️ **Early Development** - This project is in active development and not yet ready for production use.
 
-**Latest Update (2025-11-27):** RP2350 target added with full peripheral support (GPIO, ADC, PWM, SPI, I2C). Stepper and endstop support coming soon!
+**Latest Update (2025-11-28):** RP2350 now has **full feature parity** with RP2040! All 74 commands working including steppers, endstops (GPIO, analog, I2C), and TMC driver support.
 
 ### Current Progress
 
@@ -66,19 +66,18 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
   - ✅ Software SPI (bit-banging fallback)
 - ✅ I2C driver infrastructure (RP2040/RP2350)
   - ✅ Hardware I2C communication
-- ✅ Stepper driver infrastructure **(RP2040 only)**
+- ✅ Stepper driver infrastructure (RP2040/RP2350)
   - ✅ config_stepper, queue_step, set_next_step_dir, reset_step_clock
   - ✅ stepper_get_position and stepper_position response
   - ✅ stepper_stop_on_trigger for homing
-  - ✅ PIO-accelerated backend (500kHz+ step rate. Investigating even higher max speed)
-  - ⏳ RP2350 support (under investigation)
-- ✅ Endstop handling **(RP2040 only)**
+  - ✅ PIO-accelerated backend (500kHz+ step rate)
+- ✅ Endstop handling (RP2040/RP2350)
   - ✅ Trigger synchronization (trsync)
-  - ✅ Digital and analog endstop support
+  - ✅ Digital, analog, and I2C endstop support
   - ✅ Coordinated multi-axis homing
-  - ⏳ RP2350 support (under investigation)
+- ✅ TMC driver support (RP2040/RP2350)
+  - ✅ SPI and UART configuration commands
 - ⏳ Heater/temperature control
-- ⏳ TMC driver UART/SPI configuration
 
 ## Supported Hardware
 
@@ -90,8 +89,8 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 
 - **RP2350** (Raspberry Pi Pico 2, Crea8 board)
   - 48 GPIO pins (gpio0-gpio47)
-  - Peripheral support: ADC (5 channels), GPIO, PWM, SPI, I2C
-  - **Current limitations:** Steppers and endstops not yet available
+  - Full feature support (ADC, GPIO, PWM, SPI, I2C, Steppers, Endstops, TMC drivers)
+  - PIO-accelerated stepper control (up to 8 steppers via 2 PIO blocks)
   - See [targets/rp2350/README.md](targets/rp2350/README.md) for details
 
 ### Planned
@@ -240,26 +239,34 @@ position_endstop: 0
 position_max: 200
 ```
 
-**For RP2350 (Peripheral controller - no steppers):**
+**For RP2350 (Full 3D printer - Crea8 board):**
 ```ini
-[mcu rp2350]
+[mcu]
 serial: /dev/serial/by-id/usb-Amken_LLC._Crea8_Motion_Control_Board-if00
 
-# GPIO digital output (e.g., LED, relay)
-[output_pin led]
-mcu: rp2350
-pin: rp2350:gpio25
-value: 0
+[printer]
+kinematics: cartesian
+max_velocity: 300
+max_accel: 3000
+
+[stepper_x]
+step_pin: gpio2
+dir_pin: gpio3
+enable_pin: !gpio4
+microsteps: 16
+rotation_distance: 40
+endstop_pin: ^gpio16
+position_endstop: 0
+position_max: 200
 
 # PWM output (e.g., fan)
 [fan]
-mcu: rp2350
-pin: rp2350:gpio15
+pin: gpio15
 
 # ADC input (e.g., temperature sensor)
 [temperature_sensor chamber]
 sensor_type: Generic 3950
-sensor_pin: rp2350:ADC0
+sensor_pin: ADC0
 min_temp: 0
 max_temp: 100
 ```

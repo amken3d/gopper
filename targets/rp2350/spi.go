@@ -21,7 +21,7 @@ type spiBusConfig struct {
 	name string       // Human-readable name
 }
 
-var rp2040SPIBuses = map[core.SPIBusID]spiBusConfig{
+var rp2350SPIBuses = map[core.SPIBusID]spiBusConfig{
 	// SPI0 configurations
 	0: {spi: machine.SPI0, sck: machine.GPIO2, mosi: machine.GPIO3, miso: machine.GPIO0, name: "spi0a"},
 	1: {spi: machine.SPI0, sck: machine.GPIO6, mosi: machine.GPIO7, miso: machine.GPIO4, name: "spi0b"},
@@ -36,8 +36,8 @@ var rp2040SPIBuses = map[core.SPIBusID]spiBusConfig{
 	8: {spi: machine.SPI1, sck: machine.GPIO10, mosi: machine.GPIO11, miso: machine.GPIO12, name: "spi1d"},
 }
 
-// RP2040SPIDriver implements core.SPIDriver using TinyGo's machine.SPI
-type RP2040SPIDriver struct {
+// RP2350SPIDriver implements core.SPIDriver using TinyGo's machine.SPI
+type RP2350SPIDriver struct {
 	mu sync.Mutex
 
 	// Track configured buses to avoid reconfiguration
@@ -54,15 +54,15 @@ type spiInstance struct {
 	config spiBusConfig
 }
 
-// NewRP2040SPIDriver creates a new RP2040 SPI driver
-func NewRP2040SPIDriver() *RP2040SPIDriver {
-	return &RP2040SPIDriver{
+// Rp2350SPIDriver creates a new RP2040 SPI driver
+func Rp2350SPIDriver() *RP2350SPIDriver {
+	return &RP2350SPIDriver{
 		configuredBuses: make(map[core.SPIBusID]*spiInstance),
 	}
 }
 
 // ConfigureBus sets up a hardware SPI bus with specified parameters
-func (d *RP2040SPIDriver) ConfigureBus(config core.SPIConfig) (interface{}, error) {
+func (d *RP2350SPIDriver) ConfigureBus(config core.SPIConfig) (interface{}, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -76,7 +76,7 @@ func (d *RP2040SPIDriver) ConfigureBus(config core.SPIConfig) (interface{}, erro
 	}
 
 	// Validate bus ID
-	busConfig, exists := rp2040SPIBuses[config.BusID]
+	busConfig, exists := rp2350SPIBuses[config.BusID]
 	if !exists {
 		return nil, errors.New("invalid SPI bus ID")
 	}
@@ -126,7 +126,7 @@ func (d *RP2040SPIDriver) ConfigureBus(config core.SPIConfig) (interface{}, erro
 }
 
 // Transfer performs a bidirectional SPI transfer
-func (d *RP2040SPIDriver) Transfer(busHandle interface{}, txData []byte, rxData []byte) error {
+func (d *RP2350SPIDriver) Transfer(busHandle interface{}, txData []byte, rxData []byte) error {
 	inst, ok := busHandle.(*spiInstance)
 	if !ok {
 		return errors.New("invalid SPI bus handle")
@@ -148,9 +148,9 @@ func (d *RP2040SPIDriver) Transfer(busHandle interface{}, txData []byte, rxData 
 }
 
 // GetBusInfo returns information about available SPI buses
-func (d *RP2040SPIDriver) GetBusInfo() map[core.SPIBusID]string {
+func (d *RP2350SPIDriver) GetBusInfo() map[core.SPIBusID]string {
 	info := make(map[core.SPIBusID]string)
-	for id, config := range rp2040SPIBuses {
+	for id, config := range rp2350SPIBuses {
 		info[id] = config.name
 	}
 	return info
@@ -158,7 +158,7 @@ func (d *RP2040SPIDriver) GetBusInfo() map[core.SPIBusID]string {
 
 // GetMachineBus returns the underlying machine.SPI instance for a bus handle.
 // This allows direct use of TinyGo drivers that expect machine.SPI.
-func (d *RP2040SPIDriver) GetMachineBus(busHandle interface{}) (interface{}, error) {
+func (d *RP2350SPIDriver) GetMachineBus(busHandle interface{}) (interface{}, error) {
 	inst, ok := busHandle.(*spiInstance)
 	if !ok {
 		return nil, errors.New("invalid SPI bus handle")

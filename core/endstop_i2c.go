@@ -44,10 +44,11 @@ var i2cEndstops = make(map[uint8]*I2CEndstop)
 
 // InitI2CEndstopCommands registers I2C endstop-related commands
 func InitI2CEndstopCommands() {
-	// DISABLED for RP2350: Causes hang during initialization (same issue as analog endstops)
-	// Workaround: Use digital endstops only on RP2350
-
-	// TODO: Re-enable when root cause is identified and fixed
+	// RE-ENABLED: Testing with properly recompiled TinyGo (32KB stack)
+	RegisterCommand("config_i2c_endstop", "oid=%c i2c_oid=%c addr=%c sensor_type=%c distance_threshold=%u trigger_below=%c hysteresis=%u", handleConfigI2CEndstop)
+	RegisterCommand("i2c_endstop_home", "oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u trsync_oid=%c trigger_reason=%c", handleI2CEndstopHome)
+	RegisterCommand("i2c_endstop_query_state", "oid=%c", handleI2CEndstopQueryState)
+	RegisterResponse("i2c_endstop_state", "oid=%c homing=%c next_clock=%u distance=%u")
 }
 
 // handleConfigI2CEndstop configures an I2C endstop

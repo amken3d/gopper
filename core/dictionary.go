@@ -2,7 +2,9 @@ package core
 
 import (
 	"bytes"
+	"machine"
 	"sync"
+	"time"
 
 	"gopper/tinycompress"
 )
@@ -47,6 +49,19 @@ func NewDictionary(cmdReg *CommandRegistry) *Dictionary {
 	}
 }
 
+// ledBlink blinks the LED a specific number of times for diagnostics
+func ledBlink(count int) {
+	led := machine.LED
+	led.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	for i := 0; i < count; i++ {
+		led.High()
+		time.Sleep(20 * time.Millisecond)
+		led.Low()
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond) // Pause after blink sequence
+}
+
 // RegisterConstant registers a constant in the dictionary
 func RegisterConstant(name string, value interface{}) {
 	globalDictionary.AddConstant(name, value)
@@ -87,6 +102,7 @@ func (d *Dictionary) AddEnumeration(name string, values []string) {
 // SetVersion sets the firmware version string
 func (d *Dictionary) SetVersion(version string) {
 	d.mu.Lock()
+	ledBlink(1)
 	defer d.mu.Unlock()
 	d.version = version
 }
@@ -94,48 +110,67 @@ func (d *Dictionary) SetVersion(version string) {
 // SetBuildVersions sets the build versions string
 func (d *Dictionary) SetBuildVersions(versions string) {
 	d.mu.Lock()
+	ledBlink(2)
 	defer d.mu.Unlock()
 	d.buildVersions = versions
 }
 
 // BuildDictionary builds and caches the dictionary (call after all commands registered)
 func (d *Dictionary) BuildDictionary() {
+	ledBlink(3)
+	DebugPrintln("[BuildDict] Starting BuildDictionary")
+
+	// CRITICAL: Get commands/responses BEFORE acquiring dictionary lock
+	// This prevents deadlock with cores scheduler where:
+	// - Core 0: Dictionary lock → CommandRegistry lock
+	// - Core 1: CommandRegistry lock → Dictionary lock
+	DebugPrintln("[BuildDict] Calling GetCommandsAndResponses...")
+	commands, responses := d.commandReg.GetCommandsAndResponses()
+	DebugPrintln("[BuildDict] Got " + itoa(len(commands)) + " commands, " + itoa(len(responses)) + " responses")
+
+	DebugPrintln("[BuildDict] Acquiring dictionary lock...")
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	DebugPrintln("[BuildDict] Dictionary lock acquired")
 
-	// Generate uncompressed JSON (without acquiring lock - we already have it)
-	jsonData := d.buildJSONLocked()
+	// Generate uncompressed JSON (passing pre-fetched commands/responses)
+	DebugPrintln("[BuildDict] Building JSON...")
+	jsonData := d.buildJSONLockedWithData(commands, responses)
+	DebugPrintln("[BuildDict] JSON built, size: " + itoa(len(jsonData)) + " bytes")
 
-	// Re-enable compression - Klipper requires it
+	// Re-enable compression with detailed debugging
+	DebugPrintln("[BuildDict] Starting compression...")
 	var buf bytes.Buffer
+	DebugPrintln("[BuildDict] Creating NewWriter...")
 	w := tinycompress.NewWriter(&buf)
+	DebugPrintln("[BuildDict] Calling Write...")
 	_, err := w.Write(jsonData)
 	if err != nil {
-		// If compression fails, use uncompressed (Klipper will fail, but firmware won't crash)
+		DebugPrintln("[BuildDict] ERROR: Compression write failed: " + err.Error())
 		d.cachedDict = jsonData
 		return
 	}
+	DebugPrintln("[BuildDict] Calling Close...")
 	err = w.Close()
 	if err != nil {
-		// If close fails, use uncompressed
+		DebugPrintln("[BuildDict] ERROR: Compression close failed: " + err.Error())
 		d.cachedDict = jsonData
 		return
 	}
+	DebugPrintln("[BuildDict] Compression complete")
 
-	// CRITICAL: Copy bytes to ensure data persists after Buffer is garbage collected
-	// TinyGo's GC might reclaim the Buffer's internal array
 	compressed := buf.Bytes()
+	DebugPrintln("[BuildDict] Compressed size: " + itoa(len(compressed)) + " bytes")
 
-	// Safety check: ensure compression produced valid output
 	if len(compressed) == 0 {
-		// Compression failed silently - use uncompressed
+		DebugPrintln("[BuildDict] ERROR: Compression produced empty output")
 		d.cachedDict = jsonData
 		return
 	}
 
-	// Use the compressed data
 	d.cachedDict = make([]byte, len(compressed))
 	copy(d.cachedDict, compressed)
+	DebugPrintln("[BuildDict] Dictionary cached successfully")
 }
 
 // Generate generates the complete dictionary in JSON format
@@ -161,7 +196,12 @@ func (d *Dictionary) generateJSON() []byte {
 func (d *Dictionary) buildJSONLocked() []byte {
 	// Get commands and responses from registry
 	commands, responses := d.commandReg.GetCommandsAndResponses()
+	return d.buildJSONLockedWithData(commands, responses)
+}
 
+// buildJSONLockedWithData builds the JSON dictionary with pre-fetched command data
+// This version avoids nested lock acquisition (caller must hold dictionary lock)
+func (d *Dictionary) buildJSONLockedWithData(commands map[string]int, responses map[string]int) []byte {
 	// Pre-allocate a reasonably sized buffer
 	result := make([]byte, 0, 1024)
 

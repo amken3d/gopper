@@ -31,13 +31,11 @@ var analogEndstops = make(map[uint8]*AnalogEndstop)
 
 // InitAnalogEndstopCommands registers analog endstop-related commands
 func InitAnalogEndstopCommands() {
-	// DISABLED for RP2350: Causes hang during initialization
-	// Root cause: Registering ANY handler with DecodeVLQUint causes hang
-	// Even a minimal handler with single DecodeVLQUint call hangs
-	// Possible causes: code size limit, TinyGo compiler issue on RP2350
-	// Workaround: Use digital endstops only on RP2350
-
-	// TODO: Investigate further or report to TinyGo
+	// RE-ENABLED: Testing with properly recompiled TinyGo (32KB stack)
+	RegisterCommand("config_analog_endstop", "oid=%c adc_oid=%c threshold=%u trigger_above=%c hysteresis=%u", handleConfigAnalogEndstop)
+	RegisterCommand("analog_endstop_home", "oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u trsync_oid=%c trigger_reason=%c", handleAnalogEndstopHome)
+	RegisterCommand("analog_endstop_query_state", "oid=%c", handleAnalogEndstopQueryState)
+	RegisterResponse("analog_endstop_state", "oid=%c homing=%c next_clock=%u value=%u")
 }
 
 // handleConfigAnalogEndstop configures an analog endstop

@@ -66,8 +66,8 @@ func (r *CommandRegistry) Register(name string, format string, handler CommandHa
 	r.commands[id] = cmd
 	r.nameToID[name] = id
 
-	// Rebuild dictionary
-	r.rebuildDictionary()
+	// NOTE: Dictionary is built once at the end via BuildDictionary()
+	// Don't rebuild on every registration - causes memory allocation issues with cores scheduler
 
 	return id
 }
@@ -107,12 +107,15 @@ func (r *CommandRegistry) GetDictionary() string {
 // GetCommandsAndResponses returns commands and responses for JSON dictionary
 // Commands have handlers (host->MCU), responses have nil handlers (MCU->host)
 func (r *CommandRegistry) GetCommandsAndResponses() (map[string]int, map[string]int) {
+	DebugPrintln("[CmdReg] GetCommandsAndResponses: Acquiring read lock...")
 	r.mu.RLock()
+	DebugPrintln("[CmdReg] GetCommandsAndResponses: Read lock acquired")
 	defer r.mu.RUnlock()
 
 	commands := make(map[string]int)
 	responses := make(map[string]int)
 
+	DebugPrintln("[CmdReg] GetCommandsAndResponses: Processing " + itoa(int(r.nextID)) + " registered items")
 	for i := uint16(0); i < r.nextID; i++ {
 		if cmd, ok := r.commands[i]; ok {
 			// Build format string: "name param1=%type param2=%type"
@@ -130,6 +133,7 @@ func (r *CommandRegistry) GetCommandsAndResponses() (map[string]int, map[string]
 		}
 	}
 
+	DebugPrintln("[CmdReg] GetCommandsAndResponses: Done, returning " + itoa(len(commands)) + " commands, " + itoa(len(responses)) + " responses")
 	return commands, responses
 }
 

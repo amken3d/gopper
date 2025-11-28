@@ -5,7 +5,8 @@ package main
 import (
 	"gopper/core"
 	"gopper/protocol"
-	piostepper "gopper/targets/pio"
+	"gopper/targets/pio"
+	"gopper/tinycompress"
 	"machine"
 	"time"
 )
@@ -30,61 +31,101 @@ func ledBlink(count int) {
 	led.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for i := 0; i < count; i++ {
 		led.High()
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 		led.Low()
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	time.Sleep(500 * time.Millisecond) // Pause after blink sequence
+	time.Sleep(50 * time.Millisecond) // Pause after blink sequence
 }
 
 func main() {
+	// Initialize debug UART FIRST for early diagnostics
+	// GPIO36=TX, GPIO37=RX at 115200 baud
+	InitDebugUART()
+	DebugPrintln("[MAIN] Starting main()")
+
+	// Register debug writer with core and tinycompress packages
+	core.SetDebugWriter(DebugPrintln)
+	tinycompress.SetDebugWriter(DebugPrintln)
+	DebugPrintln("[MAIN] Debug writer registered with core and tinycompress packages")
+
+	// Pin main execution to Core 0 for stability
+	// This ensures all initialization happens on a single core
+	machine.LockCore(0)
+	DebugPrintln("[MAIN] Locked to Core 0")
+
 	// Initialize USB CDC immediately
 	InitUSB()
+	DebugPrintln("[MAIN] USB initialized")
+
+	// DIAGNOSTIC: 3 blinks = USB initialized
+	//ledBlink(3)
 
 	// CRITICAL: Disable watchdog on boot to clear any previous state
 	// This prevents issues with watchdog persisting across resets
+	DebugPrintln("[MAIN] Configuring watchdog...")
 	err := machine.Watchdog.Configure(machine.WatchdogConfig{TimeoutMillis: 0})
 	if err != nil {
+		DebugPrintln("[MAIN] Watchdog config failed")
 		return
 	}
+	DebugPrintln("[MAIN] Watchdog disabled")
 
 	// Initialize clock
+	DebugPrintln("[MAIN] Initializing clock...")
 	InitClock()
+	DebugPrintln("[MAIN] Clock initialized")
+	DebugPrintln("[MAIN] Initializing timer...")
 	core.TimerInit()
+	DebugPrintln("[MAIN] Timer initialized")
 
 	// Initialize core commands
+	DebugPrintln("[MAIN] Initializing core commands...")
 	core.InitCoreCommands()
+	DebugPrintln("[MAIN] Core commands initialized")
 
-	// Step 1: GPIO and ADC (most basic peripherals) - WORKING ✓
+	// Step 1: GPIO and ADC (most basic peripherals)
+	DebugPrintln("[MAIN] Initializing ADC commands...")
 	core.InitADCCommands()
+	DebugPrintln("[MAIN] Initializing GPIO commands...")
 	core.InitGPIOCommands()
+	DebugPrintln("[MAIN] GPIO/ADC initialized")
 
-	// DIAGNOSTIC: 1 blink = Core + GPIO + ADC initialized
-	ledBlink(1)
-
-	// Step 2: PWM and SPI - WORKING ✓
+	// Step 2: PWM and SPI
+	DebugPrintln("[MAIN] Initializing PWM commands...")
 	core.InitPWMCommands()
+	DebugPrintln("[MAIN] Initializing SPI commands...")
 	core.InitSPICommands()
+	DebugPrintln("[MAIN] PWM/SPI initialized")
 
-	// Step 3: Trigger sync BEFORE endstops (matches RP2040 order)
+	// Step 3: Trigger sync BEFORE endstops
+	DebugPrintln("[MAIN] Initializing trigger sync commands...")
 	core.InitTriggerSyncCommands()
+	DebugPrintln("[MAIN] Trigger sync initialized")
 
 	// Step 4: I2C
+	DebugPrintln("[MAIN] Initializing I2C commands...")
 	core.InitI2CCommands()
+	DebugPrintln("[MAIN] I2C initialized")
 
-	// Step 5: Digital endstops only (analog/I2C disabled - cause hang on RP2350)
+	// Step 5: ALL endstop types
+	DebugPrintln("[MAIN] Initializing endstop commands...")
 	core.InitEndstopCommands()
-
-	// DIAGNOSTIC: 2 blinks = Digital endstops initialized
-	ledBlink(2)
+	DebugPrintln("[MAIN] Initializing analog endstop commands...")
+	core.InitAnalogEndstopCommands()
+	DebugPrintln("[MAIN] Initializing I2C endstop commands...")
+	core.InitI2CEndstopCommands()
+	DebugPrintln("[MAIN] Endstops initialized")
 
 	// Step 6: PIO stepper support
-	piostepper.InitSteppers()
-	core.RegisterStepperCommands()
-	core.InitDriverCommands()
+	DebugPrintln("[MAIN] Initializing PIO steppers...")
+	pio.InitSteppers()
+	DebugPrintln("[MAIN] PIO steppers initialized")
 
-	// DIAGNOSTIC: 5 blinks = Steppers initialized (if we get here)
-	ledBlink(5)
+	// Step 7: Driver commands (TMC drivers, etc.)
+	DebugPrintln("[MAIN] Initializing driver commands...")
+	core.InitDriverCommands()
+	DebugPrintln("[MAIN] Driver commands initialized")
 
 	// Register combined pin enumeration for RP2350
 	// This must happen before BuildDictionary()
@@ -101,25 +142,35 @@ func main() {
 	// Step 2: Add PWM and SPI drivers
 	pwmDriver := NewRP2040PWMDriver()
 	core.SetPWMDriver(pwmDriver)
-	spiDriver := NewRP2040SPIDriver()
+	spiDriver := Rp2350SPIDriver()
 	core.SetSPIDriver(spiDriver)
 	softwareSPIDriver := NewRP2040SoftwareSPIDriver()
 	core.SetSoftwareSPIDriver(softwareSPIDriver)
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
+	DebugPrintln("[MAIN] Building dictionary...")
 	dict := core.GetGlobalDictionary()
 	dict.BuildDictionary()
+	DebugPrintln("[MAIN] Dictionary build complete!")
 
-	// DIAGNOSTIC: 3 blinks = Dictionary built successfully
-	ledBlink(3)
+	DebugPrintln("[MAIN] Blinking LED 5 times...")
+	ledBlink(5)
+	DebugPrintln("[MAIN] LED blink complete")
 
 	// Create buffers
+	DebugPrintln("[MAIN] Creating buffers...")
 	inputBuffer = protocol.NewFifoBuffer(256)
+	DebugPrintln("[MAIN] Input buffer created")
+
+	DebugPrintln("[MAIN] Creating output buffer...")
 	outputBuffer = protocol.NewScratchOutput()
+	DebugPrintln("[MAIN] Output buffer created")
 
 	// Create transport with a command handler and reset callback
+	DebugPrintln("[MAIN] Creating transport...")
 	transport = protocol.NewTransport(outputBuffer, handleCommand)
+	DebugPrintln("[MAIN] Transport created")
 	transport.SetResetCallback(func() {
 		// Clear buffers on host reset
 		inputBuffer.Reset()
@@ -152,13 +203,11 @@ func main() {
 			time.Sleep(1 * time.Millisecond)
 		}
 	})
-	// Start USB reader goroutine
-	go usbReaderLoop()
 
-	// DIAGNOSTIC: 4 blinks = Goroutine started, entering main loop
+	// DIAGNOSTIC: 4 blinks = Entering main loop (no goroutine needed)
 	ledBlink(4)
 
-	// Main loop - start immediately
+	// Main loop - handles USB reading, message processing, and timers
 	for {
 		// Recover from panics in the main loop to prevent a firmware crash
 		func() {
@@ -170,6 +219,34 @@ func main() {
 					outputBuffer.Reset()
 				}
 			}()
+
+			// Read incoming USB data into input buffer
+			available := USBAvailable()
+			if available > 0 {
+				data, err := USBRead()
+				if err != nil {
+					msgerrors++
+				} else {
+					// If we were disconnected and now receiving data, reset the state for reconnection
+					if usbWasDisconnected {
+						usbWasDisconnected = false
+						// Reset all state for fresh connection
+						inputBuffer.Reset()
+						outputBuffer.Reset()
+						transport.Reset()
+						core.ResetFirmwareState() // Clear the shutdown flag and config state
+						messagesReceived = 0
+						messagesSent = 0
+						consecutiveWriteFailures = 0
+					}
+
+					written := inputBuffer.Write([]byte{data})
+					if written == 0 {
+						// Buffer full - error condition
+						msgerrors++
+					}
+				}
+			}
 
 			// Update system time from hardware
 			UpdateSystemTime()
@@ -211,10 +288,14 @@ func main() {
 			core.AnalogInTask()
 		}()
 
-		// Yield to other goroutines
+		// Yield briefly to avoid busy loop
 		time.Sleep(10 * time.Microsecond)
 	}
 }
+
+// COMMENTED OUT: usbReaderLoop caused goroutine creation failure with large firmware
+// USB reading is now handled directly in the main loop above
+// Keep this code in case we need to revert to goroutine approach later
 
 // usbReaderLoop runs in a goroutine to continuously read USB data
 func usbReaderLoop() {

@@ -292,61 +292,98 @@ type Writer struct {
 
 // NewWriter creates a new zlib Writer compatible with io.WriteCloser
 func NewWriter(w io.Writer) *Writer {
-	return &Writer{
+	debugPrint("[ZLIB] NewWriter: Creating writer...")
+	// CRITICAL: Pre-allocate large buffer upfront to avoid ANY allocation during Write()
+	// The cores scheduler hangs on memory allocation during Write phase
+	// With all features enabled (stepper, I2C, drivers), dictionary can be ~6KB
+	writer := &Writer{
 		output:   w,
-		inputBuf: make([]byte, 0, 1024),
+		inputBuf: make([]byte, 0, 8192),
 		adler:    adler32.New(),
 	}
+	debugPrint("[ZLIB] NewWriter: Writer created")
+	return writer
 }
+
+// debugPrint is a placeholder for debug output (will be set by platform)
+var debugPrint = func(s string) {}
 
 // Write implements io.Writer
 func (w *Writer) Write(p []byte) (n int, err error) {
-	// Accumulate input data
+	debugPrint("[ZLIB] Write: Appending data...")
+
+	// CRITICAL FIX for cores scheduler: Pre-allocate exact size to avoid reallocation
+	// The append() operation can trigger memory reallocation which hangs with cores scheduler
+	if cap(w.inputBuf) < len(w.inputBuf)+len(p) {
+		debugPrint("[ZLIB] Write: Pre-allocating buffer...")
+		newBuf := make([]byte, len(w.inputBuf), len(w.inputBuf)+len(p))
+		copy(newBuf, w.inputBuf)
+		w.inputBuf = newBuf
+		debugPrint("[ZLIB] Write: Buffer pre-allocated")
+	}
+
+	// Accumulate input data (now guaranteed to fit without reallocation)
+	debugPrint("[ZLIB] Write: Appending to buffer...")
 	w.inputBuf = append(w.inputBuf, p...)
 	w.inputPos += len(p)
+	debugPrint("[ZLIB] Write: Complete")
 	return len(p), nil
 }
 
 // Close implements io.Closer and writes the compressed data
 func (w *Writer) Close() error {
+	debugPrint("[ZLIB] Close: Starting...")
+
 	// Write zlib header
+	debugPrint("[ZLIB] Close: Writing header...")
 	header := []byte{0x78, 0x9C}
 	_, err := w.output.Write(header)
 	if err != nil {
+		debugPrint("[ZLIB] Close: Header write FAILED")
 		return err
 	}
 
 	// Write DEFLATE block header (final block, no compression)
+	debugPrint("[ZLIB] Close: Writing block header...")
 	blockHeader := []byte{0x01}
 	_, err = w.output.Write(blockHeader)
 	if err != nil {
+		debugPrint("[ZLIB] Close: Block header write FAILED")
 		return err
 	}
 
 	// Write length (16-bit little endian)
+	debugPrint("[ZLIB] Close: Writing length...")
 	length := uint16(len(w.inputBuf))
 	lengthBytes := []byte{byte(length), byte(length >> 8)}
 	_, err = w.output.Write(lengthBytes)
 	if err != nil {
+		debugPrint("[ZLIB] Close: Length write FAILED")
 		return err
 	}
 
 	// Write NLEN (one's complement of length)
+	debugPrint("[ZLIB] Close: Writing NLEN...")
 	nlength := ^length
 	nlengthBytes := []byte{byte(nlength), byte(nlength >> 8)}
 	_, err = w.output.Write(nlengthBytes)
 	if err != nil {
+		debugPrint("[ZLIB] Close: NLEN write FAILED")
 		return err
 	}
 
 	// Write raw data
+	debugPrint("[ZLIB] Close: Writing raw data...")
 	_, err = w.output.Write(w.inputBuf)
 	if err != nil {
+		debugPrint("[ZLIB] Close: Raw data write FAILED")
 		return err
 	}
 
 	// Calculate and write Adler-32 checksum (big-endian)
+	debugPrint("[ZLIB] Close: Calculating checksum...")
 	checksum := adler32.Checksum(w.inputBuf)
+	debugPrint("[ZLIB] Close: Writing checksum...")
 	checksumBytes := []byte{
 		byte(checksum >> 24),
 		byte(checksum >> 16),
@@ -354,5 +391,16 @@ func (w *Writer) Close() error {
 		byte(checksum),
 	}
 	_, err = w.output.Write(checksumBytes)
-	return err
+	if err != nil {
+		debugPrint("[ZLIB] Close: Checksum write FAILED")
+		return err
+	}
+
+	debugPrint("[ZLIB] Close: Complete")
+	return nil
+}
+
+// SetDebugWriter sets the debug output function
+func SetDebugWriter(fn func(string)) {
+	debugPrint = fn
 }
