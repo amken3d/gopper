@@ -5,17 +5,22 @@ A Klipper firmware implementation in TinyGo for modern microcontrollers.
 
 Gopper brings the power of Go to 3D printer firmware, providing a modern, type-safe, and maintainable alternative to C-based implementations while maintaining full compatibility with the Klipper protocol.
 
-## Features (Planned)
+## Features
 
-- Full Klipper protocol compatibility
-- Written in TinyGo for optimal embedded performance
-- Modular architecture for easy customization
-- Type-safe implementation with Go's strong typing
-- Support for modern microcontrollers (RP2040, STM32, etc.)
+- ✅ Full Klipper protocol compatibility
+- ✅ Written in TinyGo for optimal embedded performance
+- ✅ Modular architecture for easy customization
+- ✅ Type-safe implementation with Go's strong typing
+- ✅ Support for modern microcontrollers
+  - **RP2040** (Raspberry Pi Pico) - Full support
+  - **RP2350** (Raspberry Pi Pico 2, Crea8) - Peripheral support
+  - STM32G0B1/H723 (planned)
 
 ## Status
 
 ⚠️ **Early Development** - This project is in active development and not yet ready for production use.
+
+**Latest Update (2025-11-27):** RP2350 target added with full peripheral support (GPIO, ADC, PWM, SPI, I2C). Stepper and endstop support coming soon!
 
 ### Current Progress
 
@@ -44,35 +49,52 @@ Gopper brings the power of Go to 3D printer firmware, providing a modern, type-s
 - ✅ Complete main loop with USB I/O
 
 **Phase 3: Peripheral Modules (In Progress ⏳)**
-- ✅ ADC driver infrastructure (RP2040)
-  - ✅ Internal temperature sensor support
-  - ✅ External ADC channels (ADC0-ADC3)
+- ✅ ADC driver infrastructure
+  - ✅ **RP2040:** 4 channels (ADC0-ADC3) + temperature sensor
+  - ✅ **RP2350:** 5 channels (ADC0-ADC3) + temperature sensor
   - ✅ Klipper analog_in protocol
   - ✅ Pin enumeration system
-- ✅ GPIO driver infrastructure (RP2040)
-  - ✅ Digital output support
-  - ✅ Digital input support (pull-up/pull-down)
-  - ✅ Pin enumeration (gpio0-gpio29)
+- ✅ GPIO driver infrastructure
+  - ✅ **RP2040:** 30 GPIO pins (gpio0-gpio29)
+  - ✅ **RP2350:** 48 GPIO pins (gpio0-gpio47)
+  - ✅ Digital output/input support (pull-up/pull-down)
   - ✅ PWM capable outputs
-- ✅ PWM driver infrastructure (RP2040)
-  - ✅ Hardware PWM support
-- ✅ I2C driver infrastructure (RP2040)
-- ✅ Stepper driver infrastructure
+- ✅ PWM driver infrastructure (RP2040/RP2350)
+  - ✅ Hardware PWM support (8 channels)
+- ✅ SPI driver infrastructure (RP2040/RP2350)
+  - ✅ Hardware SPI (2 controllers with multiple pin configs)
+  - ✅ Software SPI (bit-banging fallback)
+- ✅ I2C driver infrastructure (RP2040/RP2350)
+  - ✅ Hardware I2C communication
+- ✅ Stepper driver infrastructure **(RP2040 only)**
   - ✅ config_stepper, queue_step, set_next_step_dir, reset_step_clock
   - ✅ stepper_get_position and stepper_position response
   - ✅ stepper_stop_on_trigger for homing
-  - ✅ PIO-accelerated backend (500kHz step rate)
-  - ✅ GPIO fallback backend (200kHz step rate)
-- ✅ Endstop handling
+  - ✅ PIO-accelerated backend (500kHz+ step rate. Investigating even higher max speed)
+  - ⏳ RP2350 support (under investigation)
+- ✅ Endstop handling **(RP2040 only)**
   - ✅ Trigger synchronization (trsync)
   - ✅ Digital and analog endstop support
   - ✅ Coordinated multi-axis homing
+  - ⏳ RP2350 support (under investigation)
 - ⏳ Heater/temperature control
 - ⏳ TMC driver UART/SPI configuration
 
-## Supported Hardware (Planned)
+## Supported Hardware
 
-- RP2040 (Raspberry Pi Pico)
+### Fully Supported ✅
+- **RP2040** (Raspberry Pi Pico)
+  - 30 GPIO pins
+  - Full feature support (ADC, GPIO, PWM, SPI, I2C, Steppers, Endstops)
+  - PIO-accelerated stepper control (500kHz step rate)
+
+- **RP2350** (Raspberry Pi Pico 2, Crea8 board)
+  - 48 GPIO pins (gpio0-gpio47)
+  - Peripheral support: ADC (5 channels), GPIO, PWM, SPI, I2C
+  - **Current limitations:** Steppers and endstops not yet available
+  - See [targets/rp2350/README.md](targets/rp2350/README.md) for details
+
+### Planned
 - STM32F4 series
 - STM32H7 series
 - More to come...
@@ -116,15 +138,21 @@ gopper/
 ## Building
 
 Requirements:
-- TinyGo 0.31.0 or later
-- Go 1.21 or later
+- TinyGo 0.31.0 or later (0.39+ recommended for RP2350)
+- Go 1.21 or later (1.25 recommended)
 
 ```bash
 # Build for RP2040 (Raspberry Pi Pico)
 make rp2040
 
-# Build for RP2350 (Raspberry Pi Pico 2)
-tinygo build -target=pico2 -o build/gopper-rp2350.uf2 ./targets/rp2040
+# Build for RP2350 (Raspberry Pi Pico 2, generic boards)
+make rp2350
+
+# Build for RP2350 (Pico 2 specifically)
+make rp2350-pico2
+
+# Build for Crea8 board (RP2350B-based, 7-axis stepper controller)
+make crea8
 
 # Build for STM32F4
 make stm32f4
@@ -142,39 +170,101 @@ make clean
 # Build for RP2040
 tinygo build -target=pico -o build/gopper-rp2040.uf2 ./targets/rp2040
 
-# Build for RP2350
-tinygo build -target=pico2 -o build/gopper-rp2350.uf2 ./targets/rp2040
+# Build for RP2350 (generic)
+tinygo build -target=metro-rp2350 -o build/gopper-rp2350.uf2 ./targets/rp2350
+
+# Build for RP2350 (Pico 2)
+tinygo build -target=pico2 -o build/gopper-pico2.uf2 ./targets/rp2350
 
 # Build for STM32F4
 tinygo build -target=nucleo-f446re -o build/gopper-stm32f4.hex ./targets/stm32f4
 
-# Run tests (protocol package only)
+# Run tests (protocol and core packages)
 go test -v ./protocol/...
+go test -v ./core/...
 ```
 
 ## Testing with Klipper
 
-
-Test protocol without any Klipper installation:
+### Flashing Firmware
 
 ```bash
-# 1. Install Klipper (if not using Docker)
+# 1. Put board in BOOTSEL/bootloader mode
+#    - RP2040/RP2350: Hold BOOTSEL button while plugging in USB
+
+# 2. Flash firmware
+# For RP2040 (Pico)
+cp build/gopper-rp2040.uf2 /media/$USER/RPI-RP2/
+
+# For RP2350 (Pico 2, Crea8, etc.)
+cp build/gopper-rp2350.uf2 /media/$USER/RPI-RP2/
+
+# 3. Board should reboot and appear as USB serial device
+ls -l /dev/serial/by-id/
+```
+
+### Testing with Klipper Console
+
+```bash
+# Install Klipper (if not already installed)
 git clone https://github.com/Klipper3d/klipper
 cd klipper && ./scripts/install-octopi.sh
 
-# 2. Flash firmware
-cp build/gopper-rp2040.uf2 /media/$USER/RPI-RP2/
-#copy the uf2 to the RP2040 in Bootsel mode
+# Test with Klipper console (interactive mode)
+~/klippy-env/bin/python ~/klipper/klippy/console.py /dev/ttyACM0
 
-# or use this command to flash directly from the RP2040
-tinygo flash -target=pico -port=/dev/ttyACM0 build/gopper-rp2040.uf2
-
-# 3. Configure and run Klipper
-cp test/klipper-test.cfg ~/printer.cfg
-~/klipper/klippy/klippy.py ~/printer.cfg -l /tmp/klippy.log
+# Or use persistent device path
+~/klippy-env/bin/python ~/klipper/klippy/console.py /dev/serial/by-id/usb-*
 ```
 
-See [test/README.md](test/README.md) for detailed testing instructions and troubleshooting.
+### Example printer.cfg
+
+**For RP2040 (Full 3D printer):**
+```ini
+[mcu]
+serial: /dev/serial/by-id/usb-Raspberry_Pi_Pico-if00
+
+[printer]
+kinematics: cartesian
+max_velocity: 300
+max_accel: 3000
+
+[stepper_x]
+step_pin: gpio2
+dir_pin: gpio3
+enable_pin: !gpio4
+microsteps: 16
+rotation_distance: 40
+endstop_pin: ^gpio16
+position_endstop: 0
+position_max: 200
+```
+
+**For RP2350 (Peripheral controller - no steppers):**
+```ini
+[mcu rp2350]
+serial: /dev/serial/by-id/usb-Amken_LLC._Crea8_Motion_Control_Board-if00
+
+# GPIO digital output (e.g., LED, relay)
+[output_pin led]
+mcu: rp2350
+pin: rp2350:gpio25
+value: 0
+
+# PWM output (e.g., fan)
+[fan]
+mcu: rp2350
+pin: rp2350:gpio15
+
+# ADC input (e.g., temperature sensor)
+[temperature_sensor chamber]
+sensor_type: Generic 3950
+sensor_pin: rp2350:ADC0
+min_temp: 0
+max_temp: 100
+```
+
+See [test/klipper/](test/klipper/) for more example configurations and [targets/rp2350/README.md](targets/rp2350/README.md) for RP2350-specific details.
 
 ## Contributing
 
