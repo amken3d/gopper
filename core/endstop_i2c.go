@@ -44,17 +44,10 @@ var i2cEndstops = make(map[uint8]*I2CEndstop)
 
 // InitI2CEndstopCommands registers I2C endstop-related commands
 func InitI2CEndstopCommands() {
-	// Command to configure an I2C endstop
-	RegisterCommand("config_i2c_endstop", "oid=%c i2c_oid=%c addr=%c sensor_type=%c distance_threshold=%u trigger_below=%c hysteresis=%u", handleConfigI2CEndstop)
+	// DISABLED for RP2350: Causes hang during initialization (same issue as analog endstops)
+	// Workaround: Use digital endstops only on RP2350
 
-	// Command to start homing with an I2C endstop
-	RegisterCommand("i2c_endstop_home", "oid=%c clock=%u sample_ticks=%u sample_count=%c rest_ticks=%u trsync_oid=%c trigger_reason=%c", handleI2CEndstopHome)
-
-	// Command to query I2C endstop state
-	RegisterCommand("i2c_endstop_query_state", "oid=%c", handleI2CEndstopQueryState)
-
-	// Response: I2C endstop state report
-	RegisterResponse("i2c_endstop_state", "oid=%c homing=%c next_clock=%u distance=%u")
+	// TODO: Re-enable when root cause is identified and fixed
 }
 
 // handleConfigI2CEndstop configures an I2C endstop

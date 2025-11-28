@@ -5,7 +5,7 @@ package main
 import (
 	"gopper/core"
 	"gopper/protocol"
-	// piostepper "gopper/targets/pio" // DISABLED: Crashes on RP2350 during InitSteppers()
+	piostepper "gopper/targets/pio"
 	"machine"
 	"time"
 )
@@ -23,6 +23,19 @@ var (
 	usbWasDisconnected       bool
 	consecutiveWriteFailures uint32
 )
+
+// ledBlink blinks the LED a specific number of times for diagnostics
+func ledBlink(count int) {
+	led := machine.LED
+	led.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	for i := 0; i < count; i++ {
+		led.High()
+		time.Sleep(150 * time.Millisecond)
+		led.Low()
+		time.Sleep(150 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond) // Pause after blink sequence
+}
 
 func main() {
 	// Initialize USB CDC immediately
@@ -46,24 +59,32 @@ func main() {
 	core.InitADCCommands()
 	core.InitGPIOCommands()
 
-	// Step 2: PWM, SPI, and I2C - WORKING ✓
+	// DIAGNOSTIC: 1 blink = Core + GPIO + ADC initialized
+	ledBlink(1)
+
+	// Step 2: PWM and SPI - WORKING ✓
 	core.InitPWMCommands()
 	core.InitSPICommands()
+
+	// Step 3: Trigger sync BEFORE endstops (matches RP2040 order)
+	core.InitTriggerSyncCommands()
+
+	// Step 4: I2C
 	core.InitI2CCommands()
 
-	// Step 3: Disable endstops for now - compression crashes with them
-	// The crash happens at dictionary offset 240 during transmission
-	// This suggests the compressed dictionary is corrupted or too large
-	// TODO: Investigate tinycompress library on RP2350
-	// core.InitEndstopCommands()
-	// core.InitAnalogEndstopCommands()
-	// core.InitI2CEndstopCommands()
-	// core.InitTriggerSyncCommands()
+	// Step 5: Digital endstops only (analog/I2C disabled - cause hang on RP2350)
+	core.InitEndstopCommands()
 
-	// Step 4: Disable ALL stepper-related code for RP2350
-	// piostepper.InitSteppers()
-	// core.RegisterStepperCommands()
-	// core.InitDriverCommands()
+	// DIAGNOSTIC: 2 blinks = Digital endstops initialized
+	ledBlink(2)
+
+	// Step 6: PIO stepper support
+	piostepper.InitSteppers()
+	core.RegisterStepperCommands()
+	core.InitDriverCommands()
+
+	// DIAGNOSTIC: 5 blinks = Steppers initialized (if we get here)
+	ledBlink(5)
 
 	// Register combined pin enumeration for RP2350
 	// This must happen before BuildDictionary()
@@ -87,7 +108,12 @@ func main() {
 
 	// Build and cache dictionary after all commands registered
 	// This compresses the dictionary with zlib
-	core.GetGlobalDictionary().BuildDictionary()
+	dict := core.GetGlobalDictionary()
+	dict.BuildDictionary()
+
+	// DIAGNOSTIC: 3 blinks = Dictionary built successfully
+	ledBlink(3)
+
 	// Create buffers
 	inputBuffer = protocol.NewFifoBuffer(256)
 	outputBuffer = protocol.NewScratchOutput()
@@ -128,6 +154,9 @@ func main() {
 	})
 	// Start USB reader goroutine
 	go usbReaderLoop()
+
+	// DIAGNOSTIC: 4 blinks = Goroutine started, entering main loop
+	ledBlink(4)
 
 	// Main loop - start immediately
 	for {

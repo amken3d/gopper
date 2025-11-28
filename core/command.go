@@ -80,6 +80,13 @@ func (r *CommandRegistry) GetCommand(id uint16) (*Command, bool) {
 	return cmd, ok
 }
 
+// Count returns the number of registered commands
+func (r *CommandRegistry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.commands)
+}
+
 // Dispatch calls the appropriate command handler
 func (r *CommandRegistry) Dispatch(cmdID uint16, data *[]byte) error {
 	cmd, ok := r.GetCommand(cmdID)
@@ -151,6 +158,11 @@ func DispatchCommand(cmdID uint16, data *[]byte) error {
 // GetGlobalRegistry returns the global command registry
 func GetGlobalRegistry() *CommandRegistry {
 	return globalRegistry
+}
+
+// GetCommandCount returns the number of registered commands
+func GetCommandCount() int {
+	return globalRegistry.Count()
 }
 
 // RegisterResponse registers a response message (MCU -> Host)
