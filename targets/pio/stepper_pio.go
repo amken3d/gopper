@@ -68,14 +68,18 @@ func buildStepperProgram() []uint16 {
 
 // Init initializes the stepper hardware
 func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) error {
+	core.DebugPrintln("[PIO] Init: stepPin=" + itoa(int(stepPin)) + " dirPin=" + itoa(int(dirPin)))
+
 	s.stepPin = machine.Pin(stepPin)
 	s.dirPin = machine.Pin(dirPin)
 
 	// Claim state machine
+	core.DebugPrintln("[PIO] Claiming state machine...")
 	s.sm.TryClaim()
 
 	// Build program if not already built
 	if stepperProgram == nil {
+		core.DebugPrintln("[PIO] Building stepper program...")
 		stepperProgram = buildStepperProgram()
 	}
 
@@ -83,10 +87,12 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 	var offset uint8
 	var err error
 
+	core.DebugPrintln("[PIO] Loading program to PIO" + itoa(int(s.pioNum)) + "...")
 	if s.pioNum == 0 {
 		if pio0ProgramOffset == 0xFF {
 			offset, err = s.pio.AddProgram(stepperProgram, 0)
 			if err != nil {
+				core.DebugPrintln("[PIO] ERROR: AddProgram failed: " + err.Error())
 				return err
 			}
 			pio0ProgramOffset = offset
@@ -96,6 +102,7 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 		if pio1ProgramOffset == 0xFF {
 			offset, err = s.pio.AddProgram(stepperProgram, 0)
 			if err != nil {
+				core.DebugPrintln("[PIO] ERROR: AddProgram failed: " + err.Error())
 				return err
 			}
 			pio1ProgramOffset = offset
@@ -103,6 +110,7 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 		offset = pio1ProgramOffset
 	}
 	s.offset = offset
+	core.DebugPrintln("[PIO] Program loaded at offset " + itoa(int(offset)))
 
 	// Configure state machine
 	cfg := piolib.DefaultStateMachineConfig()
@@ -120,9 +128,11 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 	cfg.SetClkDivIntFrac(1000, 0)
 
 	// Configure step pin for PIO control
+	core.DebugPrintln("[PIO] Configuring step pin " + itoa(int(stepPin)) + " for PIO mode...")
 	s.stepPin.Configure(machine.PinConfig{Mode: s.pio.PinMode()})
 
 	// Configure direction pin as regular GPIO output (not PIO)
+	core.DebugPrintln("[PIO] Configuring dir pin " + itoa(int(dirPin)) + " as GPIO output...")
 	s.dirPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	s.dirPin.Low()
 
@@ -130,9 +140,11 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 	s.sm.SetPindirsConsecutive(s.stepPin, 1, true)
 
 	// Initialize and enable state machine
+	core.DebugPrintln("[PIO] Initializing state machine...")
 	s.sm.Init(offset, cfg)
 	s.sm.SetEnabled(true)
 
+	core.DebugPrintln("[PIO] Init complete")
 	return nil
 }
 
@@ -209,4 +221,27 @@ func (s *StepperPIO) IsBusy() bool {
 // Each step takes ~18 PIO cycles, so 1MHz / 18 ≈ 55kHz max step rate
 func (s *StepperPIO) SetClockDiv(whole uint16, frac uint8) {
 	s.sm.SetClkDiv(whole, frac)
+}
+
+// itoa converts int to string without importing strconv (for embedded)
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	negative := i < 0
+	if negative {
+		i = -i
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if negative {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }

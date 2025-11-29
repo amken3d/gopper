@@ -138,6 +138,27 @@ func (d *Dictionary) BuildDictionary() {
 	jsonData := d.buildJSONLockedWithData(commands, responses)
 	DebugPrintln("[BuildDict] JSON built, size: " + itoa(len(jsonData)) + " bytes")
 
+	// Debug: Print a portion of the dictionary to verify reset_step_clock is present
+	// Look for the stepper commands section
+	jsonStr := string(jsonData)
+	// Find reset_step_clock in the JSON
+	searchStr := "reset_step_clock"
+	for i := 0; i < len(jsonStr)-len(searchStr); i++ {
+		if jsonStr[i:i+len(searchStr)] == searchStr {
+			// Print context around the match
+			start := i - 20
+			if start < 0 {
+				start = 0
+			}
+			end := i + 60
+			if end > len(jsonStr) {
+				end = len(jsonStr)
+			}
+			DebugPrintln("[BuildDict] Found: ..." + jsonStr[start:end] + "...")
+			break
+		}
+	}
+
 	// Re-enable compression with detailed debugging
 	DebugPrintln("[BuildDict] Starting compression...")
 	var buf bytes.Buffer

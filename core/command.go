@@ -91,7 +91,14 @@ func (r *CommandRegistry) Count() int {
 func (r *CommandRegistry) Dispatch(cmdID uint16, data *[]byte) error {
 	cmd, ok := r.GetCommand(cmdID)
 	if !ok {
+		DebugPrintln("[CMD] Unknown command ID: " + itoa(int(cmdID)))
 		return errors.New("unknown command ID: " + itoa(int(cmdID)))
+	}
+	id := itoa(int(cmdID))
+	if id == "1" || id == "3" {
+		//nop
+	} else {
+		DebugPrintln("[CMD] Dispatch: ID=" + itoa(int(cmdID)) + " name=" + cmd.Name)
 	}
 
 	return cmd.Handler(data)
@@ -173,4 +180,22 @@ func GetCommandCount() int {
 // This is a convenience wrapper around RegisterCommand with a nil handler
 func RegisterResponse(name string, format string) uint16 {
 	return globalRegistry.Register(name, format, nil)
+}
+
+// LogRegisteredCommands logs all registered commands for debugging
+func LogRegisteredCommands() {
+	globalRegistry.mu.RLock()
+	defer globalRegistry.mu.RUnlock()
+
+	DebugPrintln("[CMD] === Registered Commands ===")
+	for i := uint16(0); i < globalRegistry.nextID; i++ {
+		if cmd, ok := globalRegistry.commands[i]; ok {
+			handlerType := "cmd"
+			if cmd.Handler == nil {
+				handlerType = "rsp"
+			}
+			DebugPrintln("[CMD] ID=" + itoa(int(cmd.ID)) + " " + handlerType + ": " + cmd.Name)
+		}
+	}
+	DebugPrintln("[CMD] === End Commands ===")
 }

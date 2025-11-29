@@ -89,43 +89,56 @@ func cmdStepperStopOnTrigger(data *[]byte) error {
 // cmdConfigStepper handles config_stepper command
 // Format: oid=%c step_pin=%c dir_pin=%c invert_step=%c min_stop_interval=%u
 func cmdConfigStepper(data *[]byte) error {
+	DebugPrintln("[STEPPER] config_stepper called")
+
 	oid, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode oid")
 		return err
 	}
 
 	stepPin, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode step_pin")
 		return err
 	}
 
 	dirPin, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode dir_pin")
 		return err
 	}
 
 	invertStep, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode invert_step")
 		return err
 	}
 
 	minStopInterval, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode min_stop_interval")
 		return err
 	}
+
+	DebugPrintln("[STEPPER] config_stepper oid=" + itoa(int(oid)) + " step=" + itoa(int(stepPin)) + " dir=" + itoa(int(dirPin)))
 
 	// Create stepper
 	_, err = NewStepper(uint8(oid), uint8(stepPin), uint8(dirPin), invertStep != 0, minStopInterval)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: NewStepper failed: " + err.Error())
 		return err
 	}
 
+	DebugPrintln("[STEPPER] config_stepper complete")
 	return nil
 }
 
 // cmdQueueStep handles queue_step command
 // Format: oid=%c interval=%u count=%hu add=%hi
 func cmdQueueStep(data *[]byte) error {
+	DebugPrintln("[STEPPER] queue_step called")
+
 	oid, err := protocol.DecodeVLQUint(data)
 	if err != nil {
 		return err
@@ -146,12 +159,22 @@ func cmdQueueStep(data *[]byte) error {
 		return err
 	}
 
+	DebugPrintln("[STEPPER] queue_step oid=" + itoa(int(oid)) + " interval=" + itoa(int(interval)) + " count=" + itoa(int(count)))
+
 	stepper := GetStepper(uint8(oid))
 	if stepper == nil {
+		DebugPrintln("[STEPPER] ERROR: stepper not found for oid=" + itoa(int(oid)))
 		return errors.New("stepper not found")
 	}
 
-	return stepper.QueueMove(interval, uint16(count), int16(add))
+	err = stepper.QueueMove(interval, uint16(count), int16(add))
+	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: QueueMove failed: " + err.Error())
+		return err
+	}
+
+	DebugPrintln("[STEPPER] queue_step complete")
+	return nil
 }
 
 func cmdSetNextStepDir(data *[]byte) error {
@@ -165,8 +188,11 @@ func cmdSetNextStepDir(data *[]byte) error {
 		return err
 	}
 
+	DebugPrintln("[STEPPER] set_next_step_dir oid=" + itoa(int(oid)) + " dir=" + itoa(int(dir)))
+
 	stepper := GetStepper(uint8(oid))
 	if stepper == nil {
+		DebugPrintln("[STEPPER] ERROR: stepper not found for oid=" + itoa(int(oid)))
 		return errors.New("stepper not found")
 	}
 
@@ -175,22 +201,30 @@ func cmdSetNextStepDir(data *[]byte) error {
 }
 
 func cmdResetStepClock(data *[]byte) error {
+	DebugPrintln("[STEPPER] reset_step_clock called")
+
 	oid, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode oid in reset_step_clock")
 		return err
 	}
 
 	clockTime, err := protocol.DecodeVLQUint(data)
 	if err != nil {
+		DebugPrintln("[STEPPER] ERROR: failed to decode clock in reset_step_clock")
 		return err
 	}
 
+	DebugPrintln("[STEPPER] reset_step_clock oid=" + itoa(int(oid)) + " clock=" + itoa(int(clockTime)))
+
 	stepper := GetStepper(uint8(oid))
 	if stepper == nil {
+		DebugPrintln("[STEPPER] ERROR: stepper not found for oid=" + itoa(int(oid)) + " (stepperCount=" + itoa(int(stepperCount)) + ")")
 		return errors.New("stepper not found")
 	}
 
 	stepper.ResetClock(clockTime)
+	DebugPrintln("[STEPPER] reset_step_clock complete")
 	return nil
 }
 

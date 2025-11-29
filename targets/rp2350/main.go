@@ -154,6 +154,9 @@ func main() {
 	dict.BuildDictionary()
 	DebugPrintln("[MAIN] Dictionary build complete!")
 
+	// Log all registered commands for debugging
+	core.LogRegisteredCommands()
+
 	DebugPrintln("[MAIN] Blinking LED 5 times...")
 	ledBlink(5)
 	DebugPrintln("[MAIN] LED blink complete")

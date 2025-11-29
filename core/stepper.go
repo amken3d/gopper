@@ -9,7 +9,9 @@ import (
 
 const (
 	// Queue size for pending moves
-	StepperQueueSize = 16
+	// Klipper typically sends bursts of moves, especially during direction changes
+	// 32 provides enough headroom for typical motion patterns
+	StepperQueueSize = 32
 
 	// Step generation modes
 	StepModeNormal = 0 // Normal stepping
@@ -51,6 +53,11 @@ type Stepper struct {
 	CurrentCount    uint16 // Steps remaining in current move
 	CurrentAdd      int16  // Current acceleration value
 
+	// Clock synchronization (from reset_step_clock)
+	NextStepClock uint32 // Clock time for next step (set by reset_step_clock)
+	ClockSet      bool   // True if NextStepClock has been set
+	LastStepTime  uint32 // Time of last step (for interval calculations)
+
 	// Hardware backend
 	Backend StepperBackend
 }
@@ -74,7 +81,10 @@ func GetStepper(oid uint8) *Stepper {
 
 // NewStepper creates a new stepper instance
 func NewStepper(oid uint8, stepPin, dirPin uint8, invertStep bool, minStopInterval uint32) (*Stepper, error) {
+	DebugPrintln("[STEPPER] NewStepper: oid=" + itoa(int(oid)) + " stepPin=" + itoa(int(stepPin)) + " dirPin=" + itoa(int(dirPin)))
+
 	if oid >= 16 {
+		DebugPrintln("[STEPPER] ERROR: OID exceeds maximum")
 		return nil, errors.New("stepper OID exceeds maximum")
 	}
 
@@ -94,14 +104,23 @@ func NewStepper(oid uint8, stepPin, dirPin uint8, invertStep bool, minStopInterv
 	s.StepTimer.Handler = s.stepperEventHandler
 
 	// Create backend if factory is available
+	DebugPrintln("[STEPPER] Checking for backend factory...")
 	if stepperBackendFactory != nil {
+		DebugPrintln("[STEPPER] Backend factory exists, creating backend...")
 		backend := stepperBackendFactory()
 		if backend != nil {
+			DebugPrintln("[STEPPER] Backend created: " + backend.GetName())
 			err := s.InitBackend(backend)
 			if err != nil {
+				DebugPrintln("[STEPPER] ERROR: InitBackend failed: " + err.Error())
 				return nil, err
 			}
+			DebugPrintln("[STEPPER] Backend initialized successfully")
+		} else {
+			DebugPrintln("[STEPPER] WARNING: Backend factory returned nil")
 		}
+	} else {
+		DebugPrintln("[STEPPER] WARNING: No backend factory set!")
 	}
 
 	// Store in registry
@@ -110,6 +129,7 @@ func NewStepper(oid uint8, stepPin, dirPin uint8, invertStep bool, minStopInterv
 		stepperCount = oid + 1
 	}
 
+	DebugPrintln("[STEPPER] NewStepper complete")
 	return s, nil
 }
 
@@ -157,8 +177,11 @@ func (s *Stepper) QueueMove(interval uint32, count uint16, add int16) error {
 
 // loadNextMove loads the next move from the queue
 func (s *Stepper) loadNextMove() {
+	DebugPrintln("[STEPPER] loadNextMove called")
+
 	// Check if queue is empty
 	if s.QueueHead == s.QueueTail {
+		DebugPrintln("[STEPPER] Queue empty, stopping")
 		s.CurrentCount = 0
 		return
 	}
@@ -168,6 +191,8 @@ func (s *Stepper) loadNextMove() {
 	s.CurrentInterval = move.Interval
 	s.CurrentCount = move.Count
 	s.CurrentAdd = move.Add
+
+	DebugPrintln("[STEPPER] Loaded move: interval=" + itoa(int(s.CurrentInterval)) + " count=" + itoa(int(s.CurrentCount)))
 
 	// Set direction
 	s.Backend.SetDirection(move.Direction != 0)
@@ -179,13 +204,32 @@ func (s *Stepper) loadNextMove() {
 	s.QueueHead = (s.QueueHead + 1) % StepperQueueSize
 
 	// Schedule first step
-	s.StepTimer.WakeTime = GetTime() + s.CurrentInterval
+	// Use reset_step_clock time if set, otherwise use LastStepTime + interval
+	// NOTE: Klipper's stepcompress calculates interval as (step_clock - last_step_clock)
+	// where last_step_clock starts at 0. So the first interval IS the absolute step time.
+	currentTime := GetTime()
+	if s.ClockSet {
+		s.StepTimer.WakeTime = s.NextStepClock
+		s.LastStepTime = s.NextStepClock // Update for subsequent steps
+		s.ClockSet = false               // Clear the flag after using
+		DebugPrintln("[STEPPER] Using reset clock: " + itoa(int(s.NextStepClock)) + " (current=" + itoa(int(currentTime)) + ")")
+	} else {
+		// Use LastStepTime as base (starts at 0, like Klipper's stepper.c)
+		// This makes the first interval an absolute time, not relative to currentTime
+		s.StepTimer.WakeTime = s.LastStepTime + s.CurrentInterval
+		DebugPrintln("[STEPPER] Using last_step_time + interval: " + itoa(int(s.LastStepTime)) + " + " + itoa(int(s.CurrentInterval)) + " = " + itoa(int(s.StepTimer.WakeTime)) + " (current=" + itoa(int(currentTime)) + ")")
+	}
+
+	DebugPrintln("[STEPPER] Scheduling timer at WakeTime=" + itoa(int(s.StepTimer.WakeTime)))
 	ScheduleTimer(&s.StepTimer)
 }
 
 // stepperEventHandler handles timer events for step generation
 // This is the main stepping loop - called for each step
 func (s *Stepper) stepperEventHandler(t *Timer) uint8 {
+	// Update LastStepTime FIRST (before loadNextMove might use it)
+	s.LastStepTime = t.WakeTime
+
 	// Generate step pulse
 	s.Backend.Step()
 
@@ -208,17 +252,42 @@ func (s *Stepper) stepperEventHandler(t *Timer) uint8 {
 		}
 	}
 
-	// Check if move is complete
+	// Check if move is complete - return directly from loadNextMove
+	// (like Klipper's stepper.c does with stepper_load_next)
 	if s.CurrentCount == 0 {
-		s.loadNextMove()
-		if s.CurrentCount == 0 {
-			// No more moves
-			return SF_DONE
-		}
+		return s.loadNextMoveFromHandler(t)
 	}
 
-	// Schedule next step
+	// Schedule next step (continuing current move)
 	t.WakeTime += s.CurrentInterval
+	return SF_RESCHEDULE
+}
+
+// loadNextMoveFromHandler loads the next move when called from step handler
+// Returns SF_DONE if no more moves, SF_RESCHEDULE otherwise
+// Unlike loadNextMove, this doesn't call ScheduleTimer - the timer system handles it
+func (s *Stepper) loadNextMoveFromHandler(t *Timer) uint8 {
+	// Check if queue is empty
+	if s.QueueHead == s.QueueTail {
+		s.CurrentCount = 0
+		return SF_DONE
+	}
+
+	// Load move
+	move := &s.Queue[s.QueueHead]
+	s.CurrentInterval = move.Interval
+	s.CurrentCount = move.Count
+	s.CurrentAdd = move.Add
+
+	// Set direction
+	s.Backend.SetDirection(move.Direction != 0)
+
+	// Advance queue head
+	s.QueueHead = (s.QueueHead + 1) % StepperQueueSize
+
+	// Calculate next step time using LastStepTime (which was just updated)
+	t.WakeTime = s.LastStepTime + s.CurrentInterval
+
 	return SF_RESCHEDULE
 }
 
@@ -245,9 +314,17 @@ func (s *Stepper) GetPosition() int64 {
 
 // ResetClock synchronizes the step clock (for Klipper coordination)
 func (s *Stepper) ResetClock(clockTime uint32) {
-	// This is used by Klipper to synchronize timing across multiple steppers
-	// Adjust next wake time to align with the provided clock value
+	DebugPrintln("[STEPPER] ResetClock: clock=" + itoa(int(clockTime)) + " current=" + itoa(int(GetTime())))
+
+	// Store the clock time for the next move
+	// This is called BEFORE queue_step, so we save it for loadNextMove to use
+	s.NextStepClock = clockTime
+	s.ClockSet = true
+	s.LastStepTime = clockTime // Also update LastStepTime for interval calculations
+
+	// If already stepping, update the wake time directly
 	if s.CurrentCount > 0 {
+		DebugPrintln("[STEPPER] Already stepping, updating WakeTime directly")
 		s.StepTimer.WakeTime = clockTime
 	}
 }
