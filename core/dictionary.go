@@ -26,6 +26,7 @@ type Dictionary struct {
 	mu            sync.RWMutex
 	constants     map[string]*Constant
 	enumerations  map[string]*Enumeration
+	staticStrings []string // Static strings for error messages (indexed by ID)
 	commandReg    *CommandRegistry
 	version       string
 	buildVersions string
@@ -97,6 +98,35 @@ func (d *Dictionary) AddEnumeration(name string, values []string) {
 		Name:   name,
 		Values: valuesCopy,
 	}
+}
+
+// AddStaticString adds a static string and returns its ID
+// Static strings are used for error/shutdown messages
+func (d *Dictionary) AddStaticString(str string) uint16 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// Check if already exists
+	for i, s := range d.staticStrings {
+		if s == str {
+			return uint16(i)
+		}
+	}
+
+	// Add new string
+	id := uint16(len(d.staticStrings))
+	d.staticStrings = append(d.staticStrings, str)
+	return id
+}
+
+// GetStaticStringID returns the ID for a static string, adding it if needed
+func GetStaticStringID(str string) uint16 {
+	return globalDictionary.AddStaticString(str)
+}
+
+// RegisterStaticString registers a static string in the global dictionary
+func RegisterStaticString(str string) uint16 {
+	return globalDictionary.AddStaticString(str)
 }
 
 // SetVersion sets the firmware version string
@@ -373,6 +403,25 @@ func (d *Dictionary) buildJSONLockedWithData(commands map[string]int, responses 
 			}
 			result = append(result, '}')
 			firstEnum = false
+		}
+		result = append(result, '}')
+	}
+
+	// Add static_strings if any (for shutdown/error messages)
+	// Format: {"id": "string"} - Klipper looks up strings by ID
+	if len(d.staticStrings) > 0 {
+		result = append(result, []byte(`,"static_strings":{`)...)
+		firstStr := true
+		for i, str := range d.staticStrings {
+			if !firstStr {
+				result = append(result, ',')
+			}
+			result = append(result, '"')
+			result = append(result, []byte(itoa(i))...)
+			result = append(result, []byte(`":"`)...)
+			result = append(result, []byte(str)...)
+			result = append(result, '"')
+			firstStr = false
 		}
 		result = append(result, '}')
 	}

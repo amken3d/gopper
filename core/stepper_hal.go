@@ -25,6 +25,11 @@ type StepperBackend interface {
 
 	// GetName returns backend implementation name
 	GetName() string
+
+	// SetStepInterval sets the step interval in timer ticks
+	// This allows backends to optimize timing (e.g., PIO clock divider)
+	// intervalTicks: time between steps in CLOCK_FREQ ticks (1 MHz = 1 µs)
+	SetStepInterval(intervalTicks uint32)
 }
 
 // StepperBackendInfo provides information about available backends

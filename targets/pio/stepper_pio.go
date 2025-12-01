@@ -19,14 +19,15 @@ var (
 // StepperPIO handles PIO-based stepper pulse generation
 // Implements core.StepperBackend interface
 type StepperPIO struct {
-	pio       *piolib.PIO
-	sm        piolib.StateMachine
-	offset    uint8
-	stepPin   machine.Pin
-	dirPin    machine.Pin
-	direction bool
-	pioNum    uint8
-	smNum     uint8
+	pio        *piolib.PIO
+	sm         piolib.StateMachine
+	offset     uint8
+	stepPin    machine.Pin
+	dirPin     machine.Pin
+	direction  bool
+	pioNum     uint8
+	smNum      uint8
+	cpuFreqMHz uint32 // Cached CPU frequency in MHz for fast divider calculation
 }
 
 // NewStepperPIO creates a new PIO stepper controller
@@ -124,8 +125,10 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 	// Wrap points (5 instruction program: 0-4)
 	cfg.SetWrap(offset+4, offset)
 
-	// Clock divider - slow for testing (125kHz PIO clock)
-	cfg.SetClkDivIntFrac(1000, 0)
+	// Clock divider - default to fast pulses (~1µs pulse width)
+	// This will be adjusted dynamically by SetStepInterval based on step rate
+	// divider 10 at 150MHz = 15MHz PIO clock, 16 cycles/step = ~1µs pulse
+	cfg.SetClkDivIntFrac(10, 0)
 
 	// Configure step pin for PIO control
 	core.DebugPrintln("[PIO] Configuring step pin " + itoa(int(stepPin)) + " for PIO mode...")
@@ -139,12 +142,15 @@ func (s *StepperPIO) Init(stepPin, dirPin uint8, invertStep, invertDir bool) err
 	// Set step pin direction BEFORE init (critical!)
 	s.sm.SetPindirsConsecutive(s.stepPin, 1, true)
 
+	// Cache CPU frequency for fast divider calculations
+	s.cpuFreqMHz = machine.CPUFrequency() / 1000000
+
 	// Initialize and enable state machine
 	core.DebugPrintln("[PIO] Initializing state machine...")
 	s.sm.Init(offset, cfg)
 	s.sm.SetEnabled(true)
 
-	core.DebugPrintln("[PIO] Init complete")
+	core.DebugPrintln("[PIO] Init complete, CPU freq: " + itoa(int(s.cpuFreqMHz)) + " MHz")
 	return nil
 }
 
@@ -221,6 +227,55 @@ func (s *StepperPIO) IsBusy() bool {
 // Each step takes ~18 PIO cycles, so 1MHz / 18 ≈ 55kHz max step rate
 func (s *StepperPIO) SetClockDiv(whole uint16, frac uint8) {
 	s.sm.SetClkDiv(whole, frac)
+}
+
+// SetStepInterval implements core.StepperBackend interface
+// Sets the PIO clock divider based on the requested step interval
+// intervalTicks: time between steps in CLOCK_FREQ ticks (1 MHz = 1 µs for RP2350)
+func (s *StepperPIO) SetStepInterval(intervalTicks uint32) {
+	// Use cached CPU frequency (set during Init) for fast calculation
+	// Supports 150MHz, 300MHz, etc. based on actual runtime frequency
+	cpuFreqMHz := s.cpuFreqMHz
+
+	// Each step takes 16 PIO cycles (8 HIGH + 8 LOW with Delay(7) each)
+	//
+	// Step timing calculation:
+	//   step_time_us = 16 * divider / cpuFreqMHz
+	//
+	// We want the step pulse to complete well within the interval
+	// so the timer system can control precise timing between steps.
+	//
+	// Strategy:
+	//   - Calculate divider to make pulse complete in ~intervalTicks/4
+	//   - Clamp to reasonable bounds (min pulse ~1µs, max divider 65535)
+	//
+	// divider = (interval_us / 4) * cpuFreqMHz / pioCycles
+	//         = interval_us * cpuFreqMHz / 64
+
+	const pioCycles = 16 // cycles per step (8 HIGH + 8 LOW)
+
+	// Calculate target divider
+	// We want step pulse to complete in interval/4 to leave timing slack
+	// divider = (interval_us / 4) * cpuFreqMHz / pioCycles
+	var divider uint32
+	if intervalTicks >= 4 {
+		divider = (intervalTicks * cpuFreqMHz) / (pioCycles * 4)
+	} else {
+		// Very fast stepping - use minimum divider for fastest pulses
+		divider = 1
+	}
+
+	// Clamp divider to valid range
+	// Minimum divider ~10 gives ~1µs pulse width (safe for most drivers)
+	// Maximum divider is 65535 (16-bit)
+	if divider < 10 {
+		divider = 10
+	}
+	if divider > 65535 {
+		divider = 65535
+	}
+
+	s.sm.SetClkDiv(uint16(divider), 0)
 }
 
 // itoa converts int to string without importing strconv (for embedded)

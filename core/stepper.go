@@ -10,8 +10,9 @@ import (
 const (
 	// Queue size for pending moves
 	// Klipper typically sends bursts of moves, especially during direction changes
-	// 32 provides enough headroom for typical motion patterns
-	StepperQueueSize = 32
+	// STEPPER_BUZZ can send 50+ moves for 10 oscillations with direction changes
+	// 64 provides enough headroom for typical motion patterns including buzzing
+	StepperQueueSize = 64
 
 	// Step generation modes
 	StepModeNormal = 0 // Normal stepping
@@ -20,7 +21,7 @@ const (
 
 // StepperMove represents a single queued move segment
 type StepperMove struct {
-	Interval  uint32 // Base step interval in timer ticks (12MHz)
+	Interval  uint32 // Base step interval in CLOCK_FREQ ticks (1MHz for RP2350)
 	Count     uint16 // Number of steps in this move
 	Add       int16  // Acceleration: added to interval each step
 	Direction uint8  // Direction: 0=forward, 1=reverse
@@ -69,6 +70,9 @@ var (
 
 	// Backend factory function (set by platform-specific code)
 	stepperBackendFactory func() StepperBackend
+
+	// Debug: step counter for diagnostics
+	totalStepCount uint32
 )
 
 // GetStepper returns a stepper by OID
@@ -177,11 +181,8 @@ func (s *Stepper) QueueMove(interval uint32, count uint16, add int16) error {
 
 // loadNextMove loads the next move from the queue
 func (s *Stepper) loadNextMove() {
-	DebugPrintln("[STEPPER] loadNextMove called")
-
 	// Check if queue is empty
 	if s.QueueHead == s.QueueTail {
-		DebugPrintln("[STEPPER] Queue empty, stopping")
 		s.CurrentCount = 0
 		return
 	}
@@ -192,46 +193,48 @@ func (s *Stepper) loadNextMove() {
 	s.CurrentCount = move.Count
 	s.CurrentAdd = move.Add
 
-	DebugPrintln("[STEPPER] Loaded move: interval=" + itoa(int(s.CurrentInterval)) + " count=" + itoa(int(s.CurrentCount)))
-
 	// Set direction
 	s.Backend.SetDirection(move.Direction != 0)
 
-	// Update position based on direction
-	// Position tracking happens after each step
+	// Configure backend timing for this step rate
+	s.Backend.SetStepInterval(s.CurrentInterval)
 
 	// Advance queue head
 	s.QueueHead = (s.QueueHead + 1) % StepperQueueSize
 
-	// Schedule first step
-	// Use reset_step_clock time if set, otherwise use LastStepTime + interval
-	// NOTE: Klipper's stepcompress calculates interval as (step_clock - last_step_clock)
-	// where last_step_clock starts at 0. So the first interval IS the absolute step time.
+	// Get current time for timing capture
 	currentTime := GetTime()
+
+	// First update LastStepTime if reset_step_clock was called
 	if s.ClockSet {
-		s.StepTimer.WakeTime = s.NextStepClock
-		s.LastStepTime = s.NextStepClock // Update for subsequent steps
-		s.ClockSet = false               // Clear the flag after using
-		DebugPrintln("[STEPPER] Using reset clock: " + itoa(int(s.NextStepClock)) + " (current=" + itoa(int(currentTime)) + ")")
-	} else {
-		// Use LastStepTime as base (starts at 0, like Klipper's stepper.c)
-		// This makes the first interval an absolute time, not relative to currentTime
-		s.StepTimer.WakeTime = s.LastStepTime + s.CurrentInterval
-		DebugPrintln("[STEPPER] Using last_step_time + interval: " + itoa(int(s.LastStepTime)) + " + " + itoa(int(s.CurrentInterval)) + " = " + itoa(int(s.StepTimer.WakeTime)) + " (current=" + itoa(int(currentTime)) + ")")
+		s.LastStepTime = s.NextStepClock
+		s.ClockSet = false
 	}
 
-	DebugPrintln("[STEPPER] Scheduling timer at WakeTime=" + itoa(int(s.StepTimer.WakeTime)))
+	// Always compute WakeTime as LastStepTime + CurrentInterval
+	s.StepTimer.WakeTime = s.LastStepTime + s.CurrentInterval
+
+	// Record timing event (fast, non-blocking)
+	RecordTiming(EvtLoadMove, s.OID, currentTime, s.StepTimer.WakeTime, s.CurrentInterval)
+
 	ScheduleTimer(&s.StepTimer)
 }
 
 // stepperEventHandler handles timer events for step generation
 // This is the main stepping loop - called for each step
 func (s *Stepper) stepperEventHandler(t *Timer) uint8 {
+	// Record timer fire event FIRST to capture timing
+	startTime := GetTime()
+	RecordTiming(EvtTimerFire, s.OID, startTime, t.WakeTime, uint32(s.CurrentCount))
+
 	// Update LastStepTime FIRST (before loadNextMove might use it)
 	s.LastStepTime = t.WakeTime
 
 	// Generate step pulse
 	s.Backend.Step()
+
+	// Track total steps for diagnostics
+	totalStepCount++
 
 	// Update position
 	if s.Queue[(s.QueueHead+StepperQueueSize-1)%StepperQueueSize].Direction == 0 {
@@ -282,11 +285,17 @@ func (s *Stepper) loadNextMoveFromHandler(t *Timer) uint8 {
 	// Set direction
 	s.Backend.SetDirection(move.Direction != 0)
 
+	// Configure backend timing for this step rate
+	s.Backend.SetStepInterval(s.CurrentInterval)
+
 	// Advance queue head
 	s.QueueHead = (s.QueueHead + 1) % StepperQueueSize
 
 	// Calculate next step time using LastStepTime (which was just updated)
 	t.WakeTime = s.LastStepTime + s.CurrentInterval
+
+	// Record timing event (fast, non-blocking)
+	RecordTiming(EvtLoadMove, s.OID, GetTime(), t.WakeTime, s.CurrentInterval)
 
 	return SF_RESCHEDULE
 }
@@ -314,7 +323,10 @@ func (s *Stepper) GetPosition() int64 {
 
 // ResetClock synchronizes the step clock (for Klipper coordination)
 func (s *Stepper) ResetClock(clockTime uint32) {
-	DebugPrintln("[STEPPER] ResetClock: clock=" + itoa(int(clockTime)) + " current=" + itoa(int(GetTime())))
+	currentTime := GetTime()
+
+	// Record timing event (fast, non-blocking)
+	RecordTiming(EvtResetClock, s.OID, currentTime, clockTime, 0)
 
 	// Store the clock time for the next move
 	// This is called BEFORE queue_step, so we save it for loadNextMove to use
@@ -324,8 +336,9 @@ func (s *Stepper) ResetClock(clockTime uint32) {
 
 	// If already stepping, update the wake time directly
 	if s.CurrentCount > 0 {
-		DebugPrintln("[STEPPER] Already stepping, updating WakeTime directly")
 		s.StepTimer.WakeTime = clockTime
+		// Re-schedule the timer in case it was removed (e.g., after shutdown)
+		ScheduleTimer(&s.StepTimer)
 	}
 }
 
@@ -348,4 +361,14 @@ func (s *Stepper) GetQueueCount() uint8 {
 		return s.QueueTail - s.QueueHead
 	}
 	return StepperQueueSize - s.QueueHead + s.QueueTail
+}
+
+// GetTotalStepCount returns the total number of steps executed (for diagnostics)
+func GetTotalStepCount() uint32 {
+	return totalStepCount
+}
+
+// ResetTotalStepCount resets the step counter
+func ResetTotalStepCount() {
+	totalStepCount = 0
 }

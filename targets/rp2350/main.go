@@ -5,7 +5,6 @@ package main
 import (
 	"gopper/core"
 	"gopper/protocol"
-	"gopper/targets/pio"
 	"gopper/tinycompress"
 	"machine"
 	"time"
@@ -51,8 +50,9 @@ func main() {
 
 	// Pin main execution to Core 0 for stability
 	// This ensures all initialization happens on a single core
-	machine.LockCore(0)
-	DebugPrintln("[MAIN] Locked to Core 0")
+
+	DebugPrintf("[MAIN] Running on core: %d", machine.CurrentCore())
+	//DebugPrintln("[MAIN] Locked to Core 0")
 
 	// Initialize USB CDC immediately
 	InitUSB()
@@ -75,6 +75,14 @@ func main() {
 	DebugPrintln("[MAIN] Initializing clock...")
 	InitClock()
 	DebugPrintln("[MAIN] Clock initialized")
+
+	// CRITICAL: Register hardware timer function for accurate time reads
+	// This ensures GetTime() reads the actual hardware timer, not a cached value
+	// Must be done before TimerInit() and any timer operations
+	DebugPrintln("[MAIN] Registering hardware timer function...")
+	core.SetHardwareTimerFunc(GetHardwareTime)
+	DebugPrintln("[MAIN] Hardware timer function registered")
+
 	DebugPrintln("[MAIN] Initializing timer...")
 	core.TimerInit()
 	DebugPrintln("[MAIN] Timer initialized")
@@ -117,10 +125,10 @@ func main() {
 	core.InitI2CEndstopCommands()
 	DebugPrintln("[MAIN] Endstops initialized")
 
-	// Step 6: PIO stepper support
-	DebugPrintln("[MAIN] Initializing PIO steppers...")
-	pio.InitSteppers()
-	DebugPrintln("[MAIN] PIO steppers initialized")
+	// Step 6: GPIO stepper support (simpler than PIO, more reliable for testing)
+	DebugPrintln("[MAIN] Initializing GPIO steppers...")
+	InitGPIOSteppers()
+	DebugPrintln("[MAIN] GPIO steppers initialized")
 
 	// Step 7: Driver commands (TMC drivers, etc.)
 	DebugPrintln("[MAIN] Initializing driver commands...")
@@ -265,6 +273,10 @@ func main() {
 				transport.Receive(inputBuf)
 				messagesReceived++
 
+				// CRITICAL: Process timers immediately after receiving commands
+				// This ensures step timers fire promptly even during command bursts
+				core.ProcessTimers()
+
 				// Remove consumed bytes from FIFO
 				consumed := originalLen - inputBuf.Available()
 				if consumed > 0 {
@@ -292,7 +304,8 @@ func main() {
 		}()
 
 		// Yield briefly to avoid busy loop
-		time.Sleep(10 * time.Microsecond)
+		// Note: Lower values improve step rate but increase CPU usage
+		time.Sleep(1 * time.Microsecond)
 	}
 }
 

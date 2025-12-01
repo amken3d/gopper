@@ -38,20 +38,33 @@ func InitCoreCommands() {
 	RegisterCommand("finalize_config", "crc=%u", handleFinalizeConfig)
 	RegisterCommand("allocate_oids", "count=%c", handleAllocateOids)
 	RegisterCommand("emergency_stop", "", handleEmergencyStop)
+	RegisterCommand("clear_shutdown", "", handleClearShutdown)
 	RegisterCommand("reset", "", handleReset)
 
 	// Debug commands
 	RegisterCommand("debug_read", "order=%c addr=%u", handleDebugRead)
 	RegisterCommand("debug_result", "val=%u", nil)
+	RegisterCommand("debug_nop", "", handleDebugNop) // For command dispatch benchmark
+	RegisterCommand("set_debug", "enable=%c", handleSetDebug)
 
 	// Response messages (MCU → Host)
 	RegisterCommand("clock", "clock=%u", nil)
 	RegisterCommand("uptime", "high=%u clock=%u", nil)
 	RegisterCommand("config", "is_config=%c crc=%u is_shutdown=%c move_count=%hu", nil)
+	RegisterCommand("shutdown", "clock=%u static_string_id=%hu", nil)
+	RegisterCommand("is_shutdown", "static_string_id=%hu", nil)
 
 	// Register common constants
 	// Note: MCU and CLOCK_FREQ are platform-specific and registered in target/*/clock.go
 	RegisterConstant("STATS_SUMSQ_BASE", uint32(256))
+
+	// Register common shutdown reason strings
+	// These must be registered before BuildDictionary() so they appear in the dictionary
+	RegisterStaticString("Rescheduled timer in the past")
+	RegisterStaticString("ADC out of range")
+	RegisterStaticString("Emergency stop")
+	RegisterStaticString("I2C write error")
+	RegisterStaticString("I2C read error")
 }
 
 // handleIdentify returns chunks of the data dictionary
@@ -179,19 +192,44 @@ func handleEmergencyStop(data *[]byte) error {
 	return nil
 }
 
+// handleClearShutdown clears the shutdown state
+// This allows the MCU to resume operation after a shutdown (e.g., for benchmarking)
+func handleClearShutdown(data *[]byte) error {
+	atomic.StoreUint32(&globalState.isShutdown, 0)
+	ResetTimerPastErrors()
+	return nil
+}
+
+// Shutdown reason IDs (must match static_strings in dictionary)
+var (
+	shutdownReasonID uint16 // Current shutdown reason string ID
+)
+
 // TryShutdown triggers a firmware shutdown with a reason message
 // This is used by safety mechanisms like ADC range checking
 func TryShutdown(reason string) {
+	// Only shutdown once
+	if atomic.LoadUint32(&globalState.isShutdown) != 0 {
+		return
+	}
 	atomic.StoreUint32(&globalState.isShutdown, 1)
+
+	// Get string ID for this reason (registers if new)
+	shutdownReasonID = GetStaticStringID(reason)
+
+	// Send shutdown message to host
+	clock := GetTime()
+	SendResponse("shutdown", func(output protocol.OutputBuffer) {
+		protocol.EncodeVLQUint(output, clock)
+		protocol.EncodeVLQUint(output, uint32(shutdownReasonID))
+	})
+
 	// Stop ADC sampling to prevent further activity after shutdown.
 	ShutdownAllAnalogIn()
 	// Return all GPIO pins to default state
 	ShutdownAllDigitalOut()
 	// Stop all I2C operations
 	ShutdownAllI2C()
-	// TODO: Send shutdown message to host with reason
-	// For now, just set the shutdown flag
-	_ = reason
 }
 
 // IsShutdown returns true if the firmware is in shutdown state
@@ -315,4 +353,22 @@ func CheckPendingReset() {
 			// Should never return - reset handler should reset the MCU
 		}
 	}
+}
+
+// handleDebugNop is a no-op command used for command dispatch benchmarks
+// This measures the raw command processing speed without any actual work
+func handleDebugNop(_ *[]byte) error {
+	return nil
+}
+
+// handleSetDebug enables or disables debug output
+// Useful for running benchmarks without debug overhead
+// Format: set_debug enable=%c (0 = disable, 1 = enable)
+func handleSetDebug(data *[]byte) error {
+	enable, err := protocol.DecodeVLQUint(data)
+	if err != nil {
+		return err
+	}
+	SetDebugEnabled(enable != 0)
+	return nil
 }
